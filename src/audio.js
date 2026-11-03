@@ -565,7 +565,10 @@ export class AudioEngine {
     this.ctx = null;
     this.muted = false;
     this.volume = DEFAULT_VOLUME;
-    this.ambienceOn = true;
+    // Casino ambience (room tone + crowd bed): OFF by default (opt-in in Settings). Every older save wrote
+    // ambience: true whether or not the player touched it, so only an explicit choice (ambSet) is restored.
+    this.ambienceOn = false;
+    this._ambSet = false;
     // Stickman calls: OFF by default (opt-in in Settings). The voice is a synthesized formant voice whose
     // intelligibility and naturalness have not been verified (no ASR / blind listening pass), so it does not
     // play on every roll unless the player asks for it. When on, it goes through the mix bus, glue, limiter
@@ -580,7 +583,7 @@ export class AudioEngine {
       if (typeof s.muted === 'boolean') this.muted = s.muted;
       // v5 moved the fader after the limiter (dB taper): an untouched old default (0.8) maps to the new default
       if (typeof s.volume === 'number' && !((s.v || 0) < 5 && s.volume === 0.8)) this.volume = clamp(s.volume, 0, 1);
-      if (typeof s.ambience === 'boolean') this.ambienceOn = s.ambience;
+      if (typeof s.ambience === 'boolean' && s.ambSet === true) { this.ambienceOn = s.ambience; this._ambSet = true; }
       // settings saved before v3 stored the old OS-voice OFF default without the user choosing it: ignore those
       if (typeof s.callouts === 'boolean' && s.callSet === true) { this.callouts = s.callouts; this._callSet = true; }
       if (typeof s.chimes === 'boolean') this.chimes = s.chimes;
@@ -742,7 +745,7 @@ export class AudioEngine {
     if (SYNC.test(name) && waited > TOL) return null;
     return a; // result / callout / win / error ...: late but still meaningful
   }
-  _save() { try { localStorage.setItem('craps.audio', JSON.stringify({ v: 5, muted: this.muted, volume: this.volume, ambience: this.ambienceOn, callouts: this.callouts, callSet: this._callSet, chimes: this.chimes })); } catch { } }
+  _save() { try { localStorage.setItem('craps.audio', JSON.stringify({ v: 6, muted: this.muted, volume: this.volume, ambience: this.ambienceOn, ambSet: this._ambSet, callouts: this.callouts, callSet: this._callSet, chimes: this.chimes })); } catch { } }
   /** Seconds between scheduling a sound and hearing it (the visuals can be delayed by this to stay in sync). */
   get latency() { const c = this.ctx; if (!c || c.state !== 'running') return 0; return clamp((c.outputLatency || 0) + (c.baseLatency || 0), 0, 0.25); }
   /** The camera used to place sounds in the stereo field (pan follows the view, not world x). */
@@ -986,7 +989,7 @@ export class AudioEngine {
     this.fader.gain.setTargetAtTime(this._faderLevel(), this.ctx.currentTime, 0.04); // bed and foreground alike
   }
   setAmbience(on) {
-    this.ambienceOn = !!on; this._save();
+    this.ambienceOn = !!on; this._ambSet = true; this._save();
     if (!this.ctx || !this.bufs) return;
     try { if (on) this._startAmbience(); else this._stopAmbience(); } catch (e) { this._fail(e); }
   }
