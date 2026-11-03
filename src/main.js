@@ -213,6 +213,62 @@ function banner(res, { sticky = false, title } = {}) {
   if (!sticky) { clearTimeout(wb._t); wb._t = setTimeout(() => wb.classList.remove('show'), 2800); }
 }
 
+// ---------- session results: every roll's net win/loss ----------
+// Kept with the session (survives a reload, like the Session figure); a bankroll reset starts a new one.
+const LOG_MAX = 2000;
+let sessionLog = SHOT ? [] : store.get('sessionLog', []);
+if (!Array.isArray(sessionLog)) sessionLog = [];
+function logRoll(res) {
+  const name = (id) => game.betInfo(id)?.name || id;
+  const w = res.events.filter((e) => e.type === 'win').map((e) => [name(e.id), e.win]);
+  const l = res.events.filter((e) => e.type === 'lose').map((e) => [name(e.id), e.lost ?? e.stake]);
+  const net = Number.isFinite(res.net) ? res.net : w.reduce((a, [, v]) => a + v, 0) - l.reduce((a, [, v]) => a + v, 0); // the engine's own net (vig included)
+  sessionLog.push({ n: game.stats.rolls, d: [res.d1, res.d2], call: res.call || '', out: res.outcome || '', net, w, l, bal: game.totalValue() });
+  if (sessionLog.length > LOG_MAX) sessionLog.splice(0, sessionLog.length - LOG_MAX);
+  store.set('sessionLog', sessionLog);
+}
+/** The status-bar pill: the latest roll's net, always on screen. */
+function renderLastResult({ pop = true } = {}) {
+  const btn = $('lastResult'); if (!btn) return;
+  const r = sessionLog[sessionLog.length - 1];
+  const action = r && (r.w.length || r.l.length);
+  btn.className = 'last-result ' + (!action ? 'none' : r.net > 0 ? 'win' : r.net < 0 ? 'lose' : 'even');
+  $('lrLabel').textContent = r ? `Roll ${r.n} · ${r.d[0] + r.d[1]}` : 'Last roll';
+  $('lrAmount').textContent = !r ? '—' : !action ? 'No action' : r.net === 0 ? 'Even' : fmtSigned(r.net);
+  if (r && pop && !SHOT) { btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop'); }
+}
+function renderResults() {
+  const acted = sessionLog.filter((r) => r.w.length || r.l.length);
+  const won = sessionLog.reduce((a, r) => a + r.w.reduce((s, [, v]) => s + v, 0), 0);
+  const lost = sessionLog.reduce((a, r) => a + r.l.reduce((s, [, v]) => s + v, 0), 0);
+  const net = sessionLog.reduce((a, r) => a + r.net, 0); // per-roll engine nets (any vig included), so it matches the Session figure's direction
+  const best = acted.reduce((b, r) => (r.net > (b?.net ?? 0) ? r : b), null);
+  const worst = acted.reduce((b, r) => (r.net < (b?.net ?? 0) ? r : b), null);
+  const cell = (k, v, cls = '') => `<div class="rs-cell ${cls}"><span>${k}</span><b>${v}</b></div>`;
+  $('rsSummary').innerHTML =
+    cell('Net', net ? fmtSigned(net) : '$0', net > 0 ? 'pos' : net < 0 ? 'neg' : '')
+    + cell('Won', fmt(won), 'pos') + cell('Lost', fmt(lost), 'neg')
+    + cell('Rolls', `${sessionLog.length}<small> · ${acted.filter((r) => r.net > 0).length}W ${acted.filter((r) => r.net < 0).length}L</small>`)
+    + cell('Best roll', best ? fmtSigned(best.net) : '—', best ? 'pos' : '')
+    + cell('Worst roll', worst ? fmtSigned(worst.net) : '—', worst ? 'neg' : '');
+  const list = $('rsList');
+  if (!sessionLog.length) { list.innerHTML = '<li class="rs-empty">No rolls yet this session. Results show here after each roll.</li>'; return; }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  list.innerHTML = sessionLog.slice().reverse().map((r) => {
+    const action = r.w.length || r.l.length;
+    const cls = !action ? 'none' : r.net > 0 ? 'win' : r.net < 0 ? 'lose' : 'even';
+    const lines = r.w.map(([n, v]) => `<span class="w">${esc(n)} <b>+${fmt(v)}</b></span>`).join('')
+      + r.l.map(([n, v]) => `<span class="l">${esc(n)} <b>-${fmt(v)}</b></span>`).join('');
+    return `<li class="${cls}"><div class="rs-row"><span class="rs-n">#${r.n}</span>`
+      + `<span class="rs-dice">${miniDie(r.d[0])}${miniDie(r.d[1])}</span>`
+      + `<span class="rs-call">${esc(r.call)}</span>`
+      + `<span class="rs-net">${!action ? '—' : r.net === 0 ? 'Even' : fmtSigned(r.net)}</span></div>`
+      + (lines ? `<div class="rs-lines">${lines}</div>` : '')
+      + `<div class="rs-bal">Balance ${fmt(r.bal)}</div></li>`;
+  }).join('');
+}
+$('lastResult')?.addEventListener('click', () => { audio.click?.(); renderResults(); $('resultsModal').classList.add('show'); $('rsList').scrollTop = 0; });
+
 // ---------- betting ----------
 function placeOn(betId, amount, { silent = false } = {}) {
   if (!betId) return false;
@@ -471,13 +527,14 @@ function diceDt(dt) {
 function settle([v1, v2], { instant = false } = {}) {
   ui.rollValues = null;
   const res = game.resolveRoll(v1, v2);
+  logRoll(res);
   persist();
   ui.phase = 'paying';
   ui.lastWins = res.events.filter((e) => e.type === 'win' && /^(place|buy)\d/.test(e.id)).map((e) => ({ id: e.id, win: e.win }));
   renderHistory();
   if (instant) {
     chips.sync(game.bets); chips.setRail(game.bankroll); puck.set(game.point, { animate: false });
-    ui.phase = 'betting'; updateHUD();
+    ui.phase = 'betting'; updateHUD(); renderLastResult();
     return res;
   }
   callout(res);
@@ -487,6 +544,7 @@ function settle([v1, v2], { instant = false } = {}) {
   later(0.55, () => { if (puck.set(game.point)) { /* sound on land */ } });
   later(0.35, () => {
     banner(res);
+    renderLastResult(); // lands with the payout ribbon, not while the dice are still tumbling
     audio.result(res);
   });
   updateHUD();
@@ -791,6 +849,7 @@ $('resetBank').addEventListener('click', () => {
   // game.reset() clears bets, point, ON/OFF overrides, Fire/ATS tracking, history and stats (settings kept)
   ui.pending = {}; ui.lastBets = null; ui.lastWins = []; ui.putConfirm = { id: null, armedAt: -1, confirmedAt: -1 };
   game.reset(1000); store.set('sessionStart', 1000);
+  sessionLog = []; store.set('sessionLog', sessionLog); renderLastResult();
   chips.sync(game.bets); chips.setRail(game.bankroll); puck.set(null); persist(); renderHistory(); updateHUD(); sideBets.refresh(); toast('Bankroll reset to $1,000', true);
 });
 
@@ -1013,7 +1072,7 @@ function frame(now) {
 
 updateChips();
 if (SHOT) { document.body.classList.add('shot'); $('loader').style.display = 'none'; setupShot(SHOT); }
-else { chips.sync(game.bets); chips.setRail(game.bankroll); renderHistory(); updateHUD(); }
+else { chips.sync(game.bets); chips.setRail(game.bankroll); renderHistory(); updateHUD(); renderLastResult({ pop: false }); }
 puck.set(game.point, { animate: false });
 if (SHOT) { chips.faceTop(); puck.faceToward(); } // square stack tops + puck lettering to the framed shot camera
 window.craps = { game, dice, chips, puck, rig, stage, audio, roll, placeOn, placeChip, sideBets, ui, settings, persist, updateHUD, toast };

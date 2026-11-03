@@ -74,6 +74,11 @@
     <div class="point-track" id="pointTrack" aria-label="Point">
       <span data-n="4">4</span><span data-n="5">5</span><span data-n="6">6</span><span data-n="8">8</span><span data-n="9">9</span><span data-n="10">10</span>
     </div>
+    <!-- last roll's net win/loss, always up; tap for the whole session's results -->
+    <button type="button" class="last-result none" id="lastResult" aria-label="Last roll result. Show session results" aria-haspopup="dialog">
+      <span class="lr-label" id="lrLabel">Last roll</span>
+      <span class="lr-amount" id="lrAmount">—</span>
+    </button>
   </div>
 
   <!-- ======= top-right: system buttons ======= -->
@@ -201,6 +206,16 @@
   </div>
 
   <!-- ======= settings ======= -->
+  <div class="modal" id="resultsModal" role="dialog" aria-labelledby="resultsTitle">
+    <div class="modal-card results-card">
+      <button class="modal-close" data-close aria-label="Close">✕</button>
+      <div class="modal-kicker">This session</div>
+      <h2 id="resultsTitle">Results</h2>
+      <div class="rs-summary" id="rsSummary"></div>
+      <ol class="rs-list" id="rsList"></ol>
+    </div>
+  </div>
+
   <div class="modal" id="settingsModal">
     <div class="modal-card">
       <button class="modal-close" data-close aria-label="Close">✕</button>
