@@ -30,7 +30,6 @@ const settings = {
   // shots run on a software rasteriser: 'medium' (4096 felt, still above screen density) keeps every mode inside the default wait
   // phones/tablets default to the 'mobile' tier: a desktop 'high' frame is several times a mobile GPU's budget
   quality: params.get('quality') || (SHOT ? 'medium' : store.get('quality', MOBILE ? 'mobile' : 'high')),
-  cinematic: SHOT ? false : store.get('cinematic', true),
   fast: SHOT ? false : store.get('fast', false),
   // game speed: 'normal' | 'fast' | 'turbo' (HUD segmented control in ui.js writes settings.speed + craps.speed)
   speed: SHOT ? 'normal' : store.get('speed', store.get('fast', false) ? 'fast' : 'normal'),
@@ -539,7 +538,6 @@ function settle([v1, v2], { instant = false } = {}) {
   }
   callout(res);
   stage.showResult?.(dice.center, v1, v2); // in-world result tag over the resting dice (atmosphere)
-  if (settings.cinematic) { rig.setFocus(dice.center, 0.42); later(1.8, () => { rig.setFocus(null, 0); rig.restOn?.(dice.center); }); }
   const dur = chips.applyEvents(res.events, { fast: false });
   later(0.55, () => { if (puck.set(game.point)) { /* sound on land */ } });
   later(0.35, () => {
@@ -841,7 +839,6 @@ $('volRange').value = audio.volume; $('volRange').addEventListener('input', (e) 
 $('ambChk').checked = audio.ambienceOn; $('ambChk').addEventListener('change', (e) => { audio.init(); audio.setAmbience(e.target.checked); });
 if ($('callChk')) { $('callChk').checked = audio.callouts; $('callChk').addEventListener('change', (e) => { audio.init(); audio.setCallouts(e.target.checked); }); }
 if ($('chimeChk')) { $('chimeChk').checked = audio.chimes; $('chimeChk').addEventListener('change', (e) => { audio.init(); audio.setChimes(e.target.checked); }); }
-$('cineChk').checked = settings.cinematic; $('cineChk').addEventListener('change', (e) => { settings.cinematic = e.target.checked; store.set('cinematic', settings.cinematic); });
 // game speed is driven by the segmented control in ui.js (writes settings.speed)
 $('hardChk').checked = game.settings.hardwaysWorkingOnComeOut; $('hardChk').addEventListener('change', (e) => { game.setSettings({ hardwaysWorkingOnComeOut: e.target.checked }); store.set('hardWorking', e.target.checked); persist(); });
 $('resetBank').addEventListener('click', () => {
@@ -1057,7 +1054,6 @@ function tick(dt) {
   lammers.update();
   puck.update(dt);
   highlighter.update(dt);
-  if (ui.phase === 'rolling' && settings.cinematic) rig.setFocus(dice.center, 0.3);
   rig.update(dt);
   tickBank(dt);
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Aurelia Craps</title>
+<title>El Jefe Craps</title>
 <meta name="theme-color" content="#060404">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
@@ -38,7 +38,7 @@
 
 <div id="loader">
   <div class="loader-ring"><span></span></div>
-  <div class="loader-title">AURELIA</div>
+  <div class="loader-title">EL JEFE</div>
   <div class="loader-rule"></div>
   <div class="loader-sub">Setting the table</div>
 </div>
@@ -83,7 +83,7 @@
 
   <!-- ======= top-right: system buttons ======= -->
   <nav class="top-actions">
-    <span class="brand-mini" aria-label="Aurelia Grand Craps"><span class="brand-gem"></span><span class="brand-name">AURELIA</span><span class="brand-div"></span></span>
+    <span class="brand-mini" aria-label="El Jefe Craps"><span class="brand-gem"></span><span class="brand-name">EL JEFE</span><span class="brand-div"></span></span>
     <button class="icon-btn" id="camBtn" data-tip="Change view · V" aria-label="Change view"><svg viewBox="0 0 24 24"><path d="M4 7.5h3l2-2.2h6l2 2.2h3v11.2H4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="12" cy="12.8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
     <button class="icon-btn" id="soundBtn" data-tip="Sound · M" aria-label="Sound"><svg viewBox="0 0 24 24"><path d="M4 9.2h3.6L12.4 5v14l-4.8-4.2H4z" fill="currentColor"/><path class="wave" d="M15.6 8.6c1.4 1.2 1.4 5.6 0 6.8M18.2 6.2c2.8 2.4 2.8 9.2 0 11.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path class="mute" d="M16 9.4l4.6 5.2M20.6 9.4L16 14.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
     <button class="icon-btn" id="settingsBtn" data-tip="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M19.4 13.5l1.6 1.2-1.8 3.1-1.9-.7a7.4 7.4 0 0 1-1.9 1.1L15 20.2h-3.6l-.4-2a7.4 7.4 0 0 1-1.9-1.1l-1.9.7-1.8-3.1 1.6-1.2a7.6 7.6 0 0 1 0-2.2L5.4 10l1.8-3.1 1.9.7a7.4 7.4 0 0 1 1.9-1.1l.4-2H15l.4 2a7.4 7.4 0 0 1 1.9 1.1l1.9-.7L21 10l-1.6 1.2a7.6 7.6 0 0 1 0 2.3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" transform="translate(-0.6 -0.2)"/></svg></button>
@@ -147,7 +147,7 @@
   <!-- ======= boot fallback (shown by ui.js if the game engine fails to start) ======= -->
   <div class="boot-fail" id="bootFail">
     <div class="bf-card">
-      <div class="modal-kicker">Aurelia Grand Craps</div>
+      <div class="modal-kicker">El Jefe Craps</div>
       <h2>The table is being reset</h2>
       <p>The game engine did not finish loading. Reloading the page usually fixes it.</p>
       <button class="act gold" id="bootReload">Reload table</button>
@@ -158,7 +158,7 @@
   <div class="modal" id="helpModal">
     <div class="modal-card wide">
       <button class="modal-close" data-close aria-label="Close">✕</button>
-      <div class="modal-kicker">Aurelia Grand Craps</div>
+      <div class="modal-kicker">El Jefe Craps</div>
       <h2>How to Play</h2>
       <div class="help-grid">
         <section>
@@ -230,7 +230,6 @@
       <label class="row"><span>Casino ambience<em>Soft crowd &amp; room tone</em></span><input type="checkbox" class="switch" id="ambChk"></label>
       <label class="row"><span>Stickman calls<em>Dealer voice calls each roll</em></span><input type="checkbox" class="switch" id="callChk"></label>
       <label class="row"><span>Win chimes<em>Off = realistic table sound (crowd &amp; chips only)</em></span><input type="checkbox" class="switch" id="chimeChk"></label>
-      <label class="row"><span>Cinematic dice camera<em>Follow the dice on each throw</em></span><input type="checkbox" class="switch" id="cineChk"></label>
       <label class="row"><span>Hardways working on come-out</span><input type="checkbox" class="switch" id="hardChk"></label>
       <div class="row"><span>Buy commission<em>Up front = classic 5% when booked (Buy 4/10 edge 4.76%)</em></span>
         <div class="seg" id="buyVigSeg" role="radiogroup"><button data-v="win">On win</button><button data-v="upfront">Up front</button></div></div>

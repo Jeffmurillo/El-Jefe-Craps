@@ -339,7 +339,7 @@ export function createFeltTexture({ resolution = 4096, color = '#0a4838', render
     const crestR = 0.62, crz = ez - 0.08;
     circle(0, crz, crestR, { stroke: GOLD, width: 0.04 });
     circle(0, crz, crestR - 0.1, { stroke: GOLD, width: 0.018 });
-    text('A', 0, crz + 0.02, 0.78, { color: GOLD, font: DIDONE, weight: 'normal' });
+    text('J', 0, crz + 0.02, 0.78, { color: GOLD, font: DIDONE, weight: 'normal' });
     for (const sx of [-1, 1]) {
       for (let i = 0; i < 7; i++) {
         const a = (sx < 0 ? Math.PI : 0) + sx * (-0.95 + i * 0.3);
@@ -350,8 +350,8 @@ export function createFeltTexture({ resolution = 4096, color = '#0a4838', render
     }
     // wordmarks: right/left edges held a fixed clearance from the laurel (outer leaf tip ≈ 0.98)
     const clear = 1.3, wordW = 2.3;
-    text('AURELIA', -(clear + wordW / 2), crz - 0.02, 0.54, { color: GOLD, font: DIDONE, weight: 'normal', spacing: 0.2, maxW: wordW });
-    text('CASINO', clear + wordW / 2, crz - 0.02, 0.54, { color: GOLD, font: DIDONE, weight: 'normal', spacing: 0.2, maxW: wordW });
+    text('EL JEFE', -(clear + wordW / 2), crz - 0.02, 0.54, { color: GOLD, font: DIDONE, weight: 'normal', spacing: 0.2, maxW: wordW });
+    text('CRAPS', clear + wordW / 2, crz - 0.02, 0.54, { color: GOLD, font: DIDONE, weight: 'normal', spacing: 0.2, maxW: wordW });
     line(-(clear + wordW + 0.05), crz + 0.48, -(clear - 0.05), crz + 0.48, { color: GOLD, width: 0.02 });
     line(clear - 0.05, crz + 0.48, clear + wordW + 0.05, crz + 0.48, { color: GOLD, width: 0.02 });
     text('EST. 1931', -(clear + wordW / 2), crz + 0.82, 0.4, { color: GOLD, font: COND, spacing: 0.3, maxW: wordW });
