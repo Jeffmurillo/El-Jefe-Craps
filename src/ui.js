@@ -138,8 +138,9 @@ function layoutHistory(real, rolls) {
     if (params.has('wager')) $('totalBet').textContent = f(params.get('wager'));
   }, 2500);
 })();
-function loop() { try { sync(); } catch (e) { /* never break the page over HUD sugar */ } requestAnimationFrame(loop); }
-requestAnimationFrame(loop);
+// 5 Hz is plenty for derived HUD state (a per-frame loop kept the CPU awake at 120 Hz on phones)
+function loop() { try { sync(); } catch (e) { /* never break the page over HUD sugar */ } }
+setInterval(loop, 200); requestAnimationFrame(loop);
 
 // ---------- bet tooltip: the key-hint row teaches once ----------
 // After the player's first chip placed from the felt (a left click while a bet tooltip is up), the hint row

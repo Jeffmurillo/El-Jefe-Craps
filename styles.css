@@ -645,3 +645,10 @@ html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent
 }
 /* touch screens: the table stays on the fixed top-down view, so the view-cycling button is hidden */
 @media (pointer: coarse) { #camBtn { display: none; } }
+/* phones / tablets (battery): no live backdrop blur (it re-blurs the 3D frame behind every panel on each draw),
+   slightly denser glass instead; the ROLL ring pulses a few times when it becomes ready, then rests */
+@media (pointer: coarse) {
+  :root { --blur: none; --glass-a: rgba(30, 22, 15, 0.86); --glass-b: rgba(9, 7, 6, 0.82); }
+  .panel, .status, .top-actions, .quick-actions, .callout, .modal { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  .roll-btn::after { animation-iteration-count: 3; animation-fill-mode: forwards; }
+}

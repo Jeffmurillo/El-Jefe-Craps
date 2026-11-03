@@ -16,9 +16,9 @@ export const QUALITY = {
   // software rasteriser (SwiftShader / llvmpipe) or headless ?shot capture: cheap but still graded
   soft: { pixelRatio: 1, shadow: 4096, bloom: true, msaa: 2, transmission: false, bokeh: 40, grain: false, ca: false },
   // phones / tablets (Adreno, Mali, Apple GPUs): sharp enough at ~2.6x DPR, one 2K key shadow, light post
-  mobile: { pixelRatio: 1.6, shadow: 2048, bloom: true, msaa: 4, transmission: false, bokeh: 60, grain: false, ca: false },
+  mobile: { pixelRatio: 1.6, shadow: 2048, bloom: true, msaa: 4, transmission: false, bokeh: 60, grain: false, ca: false, staticFill: true },
   // live play on a software rasteriser (browser GPU acceleration off): the bare minimum that stays interactive
-  cpu: { pixelRatio: 0.75, shadow: 1024, bloom: false, msaa: 0, transmission: false, bokeh: 0, grain: false, ca: false },
+  cpu: { pixelRatio: 0.75, shadow: 1024, bloom: false, msaa: 0, transmission: false, bokeh: 0, grain: false, ca: false, staticFill: true },
 };
 
 // review override: ?bloom=strength,radius,threshold
@@ -540,6 +540,8 @@ function makeResultTag() {
       sprite.visible = true; goal = 1; if (instant) mat.opacity = 1;
     },
     hide() { goal = 0; },
+    /** still fading in or out (the render loop keeps drawing until it settles) */
+    busy() { return sprite.visible && Math.abs(goal - mat.opacity) > 0.01; },
     update(dt, camera) {
       mat.opacity += (goal - mat.opacity) * (1 - Math.exp(-dt * 7));
       if (goal === 0 && mat.opacity < 0.01) { sprite.visible = false; mat.opacity = 0; }
@@ -655,6 +657,12 @@ export function createStage({ canvas, quality = 'high', isShot = false } = {}) {
     sp.shadow.bias = -0.0005; sp.shadow.normalBias = 0.03;
     scene.add(sp, sp.target); endSpots.push(sp);
   }
+  // the wall/end-wall spots only throw the (static) rail onto the walls: on phones their three shadow maps are
+  // drawn once instead of every frame (a moving die no longer shades the wall; nothing else changes)
+  function applyStaticFill() {
+    for (const l of [wallSpot, ...endSpots]) { l.shadow.autoUpdate = !Q.staticFill; l.shadow.needsUpdate = true; }
+  }
+  applyStaticFill();
 
   // ---------- room ----------
   const room = new THREE.Group(); room.name = 'room'; scene.add(room);
@@ -909,6 +917,8 @@ export function createStage({ canvas, quality = 'high', isShot = false } = {}) {
     gpu: (() => { try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)); } catch { return ''; } })(),
     /** Float the roll's total over the resting dice (gameplay readout); hidden again by hideResult() on the next throw. */
     showResult(point, d1, d2, opts) { resultTag.show(point, d1, d2, opts); },
+    /** true while the in-world result tag is fading (render-on-demand keeps drawing) */
+    busy() { return resultTag.busy(); },
     hideResult() { resultTag.hide(); },
     renderer, scene, camera, lights: { key, fillL, fillR, front, hemi, rim, wallSpot, wallWash, endSpots }, room,
     get quality() { return Q; },
@@ -920,6 +930,7 @@ export function createStage({ canvas, quality = 'high', isShot = false } = {}) {
       Q = isShot ? QUALITY.soft : software ? QUALITY.cpu : (QUALITY[name] || QUALITY.high);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pixelRatio));
       key.shadow.mapSize.set(Q.shadow, Q.shadow); key.shadow.map?.dispose(); key.shadow.map = null;
+      applyStaticFill();
       if (bokeh.children.length !== Q.bokeh) buildBokeh(Q.bokeh);
       composer?.renderTarget1?.dispose?.(); composer?.renderTarget2?.dispose?.();
       bloom?.dispose?.(); grade?.material?.dispose?.();

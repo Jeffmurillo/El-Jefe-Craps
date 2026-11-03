@@ -49,7 +49,8 @@ export class CameraRig {
     this.presetName = 'overview';
     this.stiffness = 3.2;
     this.time = 0;
-    this.breathe = !this.isShot;
+    // the handheld drift is off: a camera that never rests keeps the GPU drawing (battery) and reads as motion
+    this.breathe = false;
     // live play opens on the top-down layout view; ?shot captures keep the 3/4 overview they were framed for
     this.setPreset(this.isShot ? 'overview' : 'layout', { instant: true });
     this._bindInput();

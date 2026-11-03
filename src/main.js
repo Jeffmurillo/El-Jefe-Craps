@@ -841,6 +841,22 @@ if ($('callChk')) { $('callChk').checked = audio.callouts; $('callChk').addEvent
 if ($('chimeChk')) { $('chimeChk').checked = audio.chimes; $('chimeChk').addEventListener('change', (e) => { audio.init(); audio.setChimes(e.target.checked); }); }
 // game speed is driven by the segmented control in ui.js (writes settings.speed)
 $('hardChk').checked = game.settings.hardwaysWorkingOnComeOut; $('hardChk').addEventListener('change', (e) => { game.setSettings({ hardwaysWorkingOnComeOut: e.target.checked }); store.set('hardWorking', e.target.checked); persist(); });
+// installed app: show which build is running, and pull the newest one on demand
+{
+  const v = document.querySelector('meta[name="app-version"]')?.content || 'dev';
+  if ($('appVersion')) $('appVersion').textContent = v === 'dev' ? 'Local build' : v;
+  $('updateBtn')?.addEventListener('click', async () => {
+    const sw = navigator.serviceWorker;
+    if (!sw || !sw.controller) { location.reload(); return; }
+    toast('Checking for updates…', true);
+    try {
+      const reg = await sw.getRegistration();
+      sw.addEventListener('controllerchange', () => location.reload(), { once: true }); // the new build takes over: restart into it
+      await reg.update();
+      if (!reg.installing && !reg.waiting) toast('You have the latest version', true);
+    } catch { toast('Could not check for updates. Are you offline?'); }
+  });
+}
 $('resetBank').addEventListener('click', () => {
   if (ui.phase !== 'betting') return;
   // game.reset() clears bets, point, ON/OFF overrides, Fire/ATS tracking, history and stats (settings kept)
@@ -1057,13 +1073,47 @@ function tick(dt) {
   rig.update(dt);
   tickBank(dt);
 }
+// ---- render on demand (battery): a frame is drawn only while something moves ----
+// Busy = dice/chips/puck/bank animating, timers pending, a roll in progress, a hover pulse, the result tag fading,
+// the camera still easing, or recent input. Otherwise the loop sleeps and draws one safety frame a second.
+// Phones also cap the animated frame rate at 60 fps (their 120 Hz panels would double the GPU work for no gain).
+const FPS_CAP = MOBILE ? 60 : 0;
+const IDLE_HEARTBEAT_MS = 1000;
+let rafId = 0, sleepTimer = 0, awakeUntil = performance.now() + 3000, lastDrawn = -1e9;
+const camLast = new Float32Array(17);
+function cameraMoved() {
+  const e = camera.matrixWorld.elements; let moved = Math.abs(camera.fov - camLast[16]) > 1e-4;
+  for (let i = 0; i < 16; i++) { if (Math.abs(e[i] - camLast[i]) > 1e-5) moved = true; camLast[i] = e[i]; }
+  camLast[16] = camera.fov;
+  return moved;
+}
+function busy() {
+  return timers.length > 0 || !!dice.anim || chips.tweens.length > 0 || !!puck.anim || !!bankAnim
+    || ui.phase !== 'betting' || !!highlighter.current || stage.busy?.();
+}
+function wake(ms = 600) {
+  awakeUntil = Math.max(awakeUntil, performance.now() + ms);
+  clearTimeout(sleepTimer); sleepTimer = 0;
+  if (!rafId) { last = performance.now(); rafId = requestAnimationFrame(frame); }
+}
+if (!SHOT) {
+  for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'resize']) window.addEventListener(ev, () => wake(), { passive: true, capture: true });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(1500); });
+  window.craps_wake = wake; // other modules (HUD, side bets) can nudge a redraw
+}
 function frame(now) {
-  const raw = Math.max(0, (now - last) / 1000); last = now;
+  rafId = 0;
+  if (FPS_CAP && now - lastDrawn < 1000 / FPS_CAP - 2) { rafId = requestAnimationFrame(frame); return; }
+  const raw = Math.max(0, (now - last) / 1000); last = now; lastDrawn = now;
   if (SHOT_DT) for (let i = 0; i < STEPS; i++) tick(SHOT_DT); else tick(Math.min(0.05, raw));
-  if (DEBUG) DEBUG.textContent = `frames ${frames} · t ${clockT.toFixed(2)}s · raw ${(raw * 1000).toFixed(0)}ms · phase ${ui.phase} · vp ${innerWidth}x${innerHeight} · cv ${canvas.clientWidth}x${canvas.clientHeight}`;
+  camera.updateMatrixWorld();
+  const camMv = cameraMoved(), active = SHOT || busy() || camMv || now < awakeUntil;
+  if (DEBUG) DEBUG.textContent = `frames ${frames} · t ${clockT.toFixed(2)}s · raw ${(raw * 1000).toFixed(0)}ms · phase ${ui.phase} · ${active ? "awake" : "asleep"} (timers ${timers.length} dice ${!!dice.anim} chips ${chips.tweens.length} puck ${!!puck.anim} hl ${!!highlighter.current} tag ${!!stage.busy?.()} cam ${camMv} input ${now < awakeUntil})`;
   stage.render(Math.min(0.05, raw));
-  if (++frames === 2) $('loader').classList.add('hide');
-  requestAnimationFrame(frame);
+  if (++frames === 2) { const l = $('loader'); l.classList.add('hide'); setTimeout(() => { l.style.display = 'none'; }, 900); } // no spinner animating under the table
+  if (active) rafId = requestAnimationFrame(frame);
+  // asleep: the safety frame is drawn straight from the timer (a browser may skip rAF for a page with no damage)
+  else sleepTimer = setTimeout(() => { sleepTimer = 0; if (!rafId) { last = performance.now(); frame(last); } }, IDLE_HEARTBEAT_MS);
 }
 
 updateChips();
@@ -1072,4 +1122,4 @@ else { chips.sync(game.bets); chips.setRail(game.bankroll); renderHistory(); upd
 puck.set(game.point, { animate: false });
 if (SHOT) { chips.faceTop(); puck.faceToward(); } // square stack tops + puck lettering to the framed shot camera
 window.craps = { game, dice, chips, puck, rig, stage, audio, roll, placeOn, placeChip, sideBets, ui, settings, persist, updateHUD, toast };
-requestAnimationFrame(frame);
+rafId = requestAnimationFrame(frame);

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>El Jefe Craps</title>
 <meta name="theme-color" content="#060404">
+<meta name="app-version" content="dev">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -30,7 +31,7 @@
   })();
 </script>
 <script type="importmap">
-{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/jsm/" } }
+{ "imports": { "three": "./vendor/three/build/three.module.min.js", "three/addons/": "./vendor/three/jsm/" } }
 </script>
 </head>
 <body>
@@ -243,6 +244,7 @@
         <div class="seg" id="roundUpSeg" role="radiogroup"><button data-v="0">Never</button><button data-v="1">$1</button><button data-v="2">$2</button></div></div>
       <input type="checkbox" id="fastChk" hidden>
       <div class="row"><span>Bankroll</span><button class="act small" id="resetBank">Reset to $1,000</button></div>
+      <div class="row"><span>App version<em id="appVersion">dev</em></span><button class="act small" id="updateBtn">Check for updates</button></div>
     </div>
   </div>
 </div>
