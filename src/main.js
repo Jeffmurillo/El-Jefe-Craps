@@ -26,6 +26,15 @@ const store = {
   set(k, v) { if (SHOT) return; try { localStorage.setItem('craps.' + k, JSON.stringify(v)); } catch { } },
 };
 const MOBILE = matchMedia('(pointer: coarse)').matches && /Android|iPad|iPhone|Mobi/i.test(navigator.userAgent);
+// Crash-loop guard: craps.booting is set now and cleared a few seconds after the first frame. Finding it still
+// set means the last launch died while loading (e.g. Android killed the browser), so this one starts on 'low'.
+const BOOT_KEY = 'craps.booting';
+let interruptedBoot = false;
+if (!SHOT) {
+  try { interruptedBoot = localStorage.getItem(BOOT_KEY) != null; localStorage.setItem(BOOT_KEY, String(Date.now())); } catch { }
+  if (interruptedBoot && !params.get('quality') && store.get('quality', MOBILE ? 'mobile' : 'high') !== 'low') store.set('quality', 'low');
+  else interruptedBoot = false;
+}
 const settings = {
   // shots run on a software rasteriser: 'medium' (4096 felt, still above screen density) keeps every mode inside the default wait
   // phones/tablets default to the 'mobile' tier: a desktop 'high' frame is several times a mobile GPU's budget
@@ -44,7 +53,8 @@ const canvas = $('gl');
 const stage = createStage({ canvas, quality: settings.quality, isShot: !!SHOT });
 const { scene, camera, renderer } = stage;
 // software WebGL (browser GPU acceleration off): build the light assets too, or the 8K felt alone takes ages
-const assetQuality = stage.software && !SHOT ? 'low' : settings.quality === 'mobile' ? 'medium' : settings.quality;
+// phones build the light texture set (2048 felt, 256 chip faces): the 4096 set put Android's GPU process near 1 GB
+const assetQuality = stage.software && !SHOT ? 'low' : settings.quality === 'mobile' ? 'low' : settings.quality;
 const table = createTable({ renderer, quality: assetQuality });
 if (stage.software && !SHOT && !params.has('nowarn')) {
   // the game can only limp along on a CPU rasteriser: say why, and how to fix it, until dismissed
@@ -59,7 +69,7 @@ if (stage.software && !SHOT && !params.has('nowarn')) {
 scene.add(table.group);
 stage.applyEnv?.(table.group); // per-material envMapIntensity (lacquered wood reflects the canopy, felt stays matte)
 const dice = new DiceSet(scene, { transmission: stage.quality.transmission });
-const chips = new ChipManager(scene, { faceRes: assetQuality === 'low' ? 256 : 512 });
+const chips = new ChipManager(scene, { faceRes: assetQuality === 'low' ? 256 : 512, lite: settings.quality === 'mobile' && !SHOT });
 const puck = new Puck(scene);
 chips.viewer = camera; puck.viewer = camera; // top-chip numerals and the puck lettering read upright for the player
 chips.pointOf = () => game.point; // come bets that travel into the puck's box sit beside the place stack
@@ -181,9 +191,9 @@ function tickBank(dt) {
 }
 
 let toastTimer = 0;
-function toast(msg, info = false) {
+function toast(msg, info = false, ms = 2400) {
   const t = $('toast'); t.textContent = msg; t.className = 'toast show' + (info ? ' info' : '');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 function callout(res, { sticky = false } = {}) {
   $('calloutDice').innerHTML = miniDie(res.d1) + miniDie(res.d2);
@@ -1102,6 +1112,7 @@ if (!SHOT) {
   window.craps_wake = wake; // other modules (HUD, side bets) can nudge a redraw
 }
 function frame(now) {
+  if (!sceneReady) { rafId = 0; return; } // shaders still compiling in the background: input wakes must not force a blocking draw
   rafId = 0;
   if (FPS_CAP && now - lastDrawn < 1000 / FPS_CAP - 2) { rafId = requestAnimationFrame(frame); return; }
   const raw = Math.max(0, (now - last) / 1000); last = now; lastDrawn = now;
@@ -1110,7 +1121,14 @@ function frame(now) {
   const camMv = cameraMoved(), active = SHOT || busy() || camMv || now < awakeUntil;
   if (DEBUG) DEBUG.textContent = `frames ${frames} · t ${clockT.toFixed(2)}s · raw ${(raw * 1000).toFixed(0)}ms · phase ${ui.phase} · ${active ? "awake" : "asleep"} (timers ${timers.length} dice ${!!dice.anim} chips ${chips.tweens.length} puck ${!!puck.anim} hl ${!!highlighter.current} tag ${!!stage.busy?.()} cam ${camMv} input ${now < awakeUntil})`;
   stage.render(Math.min(0.05, raw));
-  if (++frames === 2) { const l = $('loader'); l.classList.add('hide'); setTimeout(() => { l.style.display = 'none'; }, 900); } // no spinner animating under the table
+  if (++frames === 2) {
+    const l = $('loader'); l.classList.add('hide'); setTimeout(() => { l.style.display = 'none'; }, 900); // no spinner animating under the table
+    if (!SHOT) {
+      releaseTextureCanvases(); audio.prerenderSoon?.(); // sound synthesis waits until the table is up
+      setTimeout(() => { try { localStorage.removeItem(BOOT_KEY); } catch { } }, 4000); // this launch made it
+      if (interruptedBoot) setTimeout(() => toast('The last launch didn\'t finish loading, so graphics are now on Low. Change it in Settings.', true, 7000), 1200);
+    }
+  }
   if (active) rafId = requestAnimationFrame(frame);
   // asleep: the safety frame is drawn straight from the timer (a browser may skip rAF for a page with no damage)
   else sleepTimer = setTimeout(() => { sleepTimer = 0; if (!rafId) { last = performance.now(); frame(last); } }, IDLE_HEARTBEAT_MS);
@@ -1122,4 +1140,61 @@ else { chips.sync(game.bets); chips.setRail(game.bankroll); renderHistory(); upd
 puck.set(game.point, { animate: false });
 if (SHOT) { chips.faceTop(); puck.faceToward(); } // square stack tops + puck lettering to the framed shot camera
 window.craps = { game, dice, chips, puck, rig, stage, audio, roll, placeOn, placeChip, sideBets, ui, settings, persist, updateHUD, toast };
-rafId = requestAnimationFrame(frame);
+// ---------- startup: compile shaders in the background, then draw ----------
+// A first render compiles ~40 shader programs synchronously: ~6 s of a blocked GPU process on a fast desktop,
+// long enough on a phone for Android's GPU watchdog to kill Chrome. compileAsync issues them all at once and
+// waits on KHR_parallel_shader_compile, so the loader keeps animating and nothing blocks for long.
+/**
+ * Phones: the plain lacquer materials (MeshPhysicalMaterial clearcoat: chips, rails, bank) become
+ * MeshStandardMaterial. The clearcoat shader is three.js's heaviest; on a 6-inch screen the second gloss layer
+ * is barely visible, but it cost compile time, GPU memory and per-pixel battery. Custom-shader materials keep theirs.
+ */
+function liteMaterials() {
+  const swapped = new Map();
+  const lite = (m) => {
+    if (!m || !m.isMeshPhysicalMaterial || m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return m;
+    if (swapped.has(m)) return swapped.get(m);
+    const s = THREE.MeshStandardMaterial.prototype.copy.call(new THREE.MeshStandardMaterial(), m);
+    // stand-in for the missing coat: a touch glossier where the coat was smoother than the base
+    if (m.clearcoat > 0) s.roughness = THREE.MathUtils.lerp(m.roughness, Math.min(m.roughness, m.clearcoatRoughness + 0.08), m.clearcoat * 0.6);
+    s.name = m.name; s.userData = { ...m.userData };
+    swapped.set(m, s); return s;
+  };
+  scene.traverse((o) => { if (Array.isArray(o.material)) o.material = o.material.map(lite); else if (o.material) o.material = lite(o.material); });
+  for (const set of [chips.mats, chips.flyMats]) if (set?.entries) for (const [k, m] of set.entries()) set.set(k, lite(m));
+  return swapped.size;
+}
+if (settings.quality === 'mobile' && !SHOT) liteMaterials();
+
+let sceneReady = !!SHOT; // ?shot captures keep their synchronous first frame
+const startDraw = () => { if (sceneReady) return; sceneReady = true; if (!rafId) rafId = requestAnimationFrame(frame); };
+if (SHOT) rafId = requestAnimationFrame(frame);
+else {
+  try { stage.precompile().then(startDraw, startDraw); } catch { startDraw(); }
+  setTimeout(startDraw, 15000); // never strand the player on the loader
+}
+
+/**
+ * Once their textures are on the GPU, the canvases the textures were painted on are dead weight (Chrome keeps
+ * each 2D canvas's own GPU backing): shrink them to 1x1. A texture that is redrawn later sets userData.keepCanvas.
+ */
+function releaseTextureCanvases() {
+  const seen = new Set();
+  const release = (t) => {
+    if (!t || !t.isTexture || seen.has(t)) return; seen.add(t);
+    const im = t.image;
+    if (t.userData?.keepCanvas || typeof HTMLCanvasElement === 'undefined' || !(im instanceof HTMLCanvasElement) || im.width <= 1) return;
+    try { renderer.initTexture(t); im.width = im.height = 1; } catch { /* keep it: worst case is the old memory use */ }
+  };
+  const fromMat = (m) => {
+    if (!m) return;
+    for (const k of Object.keys(m)) release(m[k]);
+    if (m.uniforms) for (const u of Object.values(m.uniforms)) release(u?.value);
+  };
+  scene.traverse((o) => { for (const m of [].concat(o.material || [])) fromMat(m); });
+  for (const set of [chips.mats, chips.flyMats]) if (set?.values) for (const m of set.values()) fromMat(m);
+}
+// textures live only on the GPU after the release above, so a lost GL context (Android may reset the GPU
+// process under memory pressure) is recovered by restarting the app rather than drawing blank textures
+canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); });
+canvas.addEventListener('webglcontextrestored', () => { persist(); location.reload(); });

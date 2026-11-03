@@ -507,6 +507,7 @@ function endBandCookie(pos, target, angle, { plane, span }) {
 function makeResultTag() {
   const W = 512, H = 300, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const ctx = cv.getContext('2d');
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  tex.userData.keepCanvas = true; // redrawn on every roll: its canvas must survive the post-upload canvas release
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false, opacity: 0 });
   const sprite = new THREE.Sprite(mat); sprite.renderOrder = 50; sprite.visible = false;
   sprite.center.set(0.5, 0); // anchored at its pointer tip
@@ -917,6 +918,19 @@ export function createStage({ canvas, quality = 'high', isShot = false } = {}) {
     gpu: (() => { try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)); } catch { return ''; } })(),
     /** Float the roll's total over the resting dice (gameplay readout); hidden again by hideResult() on the next throw. */
     showResult(point, d1, d2, opts) { resultTag.show(point, d1, d2, opts); },
+    /**
+     * Compile the scene's shaders in the background (KHR_parallel_shader_compile) before the first frame.
+     * Bound to the composer's HDR target: three.js keys programs on the current render target (offscreen =
+     * no tone mapping, linear output), so compiling against the screen built ~40 programs the frame never used.
+     */
+    precompile() {
+      // (compiling one top-level group at a time was measured: same peak, 25% slower, so all at once)
+      const prev = renderer.getRenderTarget();
+      renderer.setRenderTarget(composer.readBuffer);
+      let p;
+      try { p = renderer.compileAsync(scene, camera); } finally { renderer.setRenderTarget(prev); }
+      return p;
+    },
     /** true while the in-world result tag is fading (render-on-demand keeps drawing) */
     busy() { return resultTag.busy(); },
     hideResult() { resultTag.hide(); },

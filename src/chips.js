@@ -320,7 +320,8 @@ const _v = new THREE.Vector3(), _q = new THREE.Vector3();
 const _X = new THREE.Vector3(1, 0, 0), _Z = new THREE.Vector3(0, 0, 1), _Q = new THREE.Quaternion();
 
 export class ChipManager {
-  constructor(scene, { faceRes = 256 } = {}) {
+  constructor(scene, { faceRes = 256, lite = false } = {}) {
+    this.lite = lite; // phones: lacquer as MeshStandardMaterial (no clearcoat layer) for materials made after startup
     this.scene = scene;
     this.group = new THREE.Group(); this.group.name = 'chips'; scene.add(this.group);
     this.geo = discGeometry(CHIP_R, CHIP_T, { bevel: 0.012, recess: 0.0026, inlayR: CHIP_R * 0.62, seg: 56, bevelSteps: 4 });
@@ -776,7 +777,9 @@ export class ChipManager {
     speckle(ctx, W, 0, { n: n * 900, seed: seed + 5 });
     const map = new THREE.CanvasTexture(cv); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 16; map.wrapS = THREE.RepeatWrapping;
     const bump = new THREE.CanvasTexture(bv); bump.anisotropy = 8;
-    m = new THREE.MeshPhysicalMaterial({ map, bumpMap: bump, bumpScale: 0.6, color: 0xececec, roughness: 0.46, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.25, envMapIntensity: 1.0 });
+    m = this.lite
+      ? new THREE.MeshStandardMaterial({ map, bumpMap: bump, bumpScale: 0.6, color: 0xececec, roughness: 0.36, metalness: 0, envMapIntensity: 1.0 })
+      : new THREE.MeshPhysicalMaterial({ map, bumpMap: bump, bumpScale: 0.6, color: 0xececec, roughness: 0.46, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.25, envMapIntensity: 1.0 });
     this.tubeMats.set(key, m);
     return m;
   }

@@ -660,10 +660,13 @@ export class AudioEngine {
     }
     // Pre-render everything into plain arrays in idle chunks shortly after load (no AudioContext needed),
     // so the first click/keypress does almost no work.
-    setTimeout(() => this._prerender(), SHOT ? 0 : 700);
+    // (live play: main.js calls prerenderSoon() once the table is drawn, so synthesis never competes with loading)
+    this._prerenderT = setTimeout(() => { this._prerenderT = null; this._prerender(); }, SHOT ? 0 : 10000);
     if (AUDIOTEST) { window.__crapsAudio = this; setTimeout(() => this._report(), 20); } // offline measurement does not need the live context
     if (AUDIOTEST || REC_SECONDS) setTimeout(() => this.init(), 50);
   }
+  /** Start the idle pre-render shortly (after the first frame), instead of waiting for the fallback timer. */
+  prerenderSoon() { if (this._prerenderT == null) return; clearTimeout(this._prerenderT); this._prerenderT = null; setTimeout(() => this._prerender(), 1500); }
   _fail(e) {
     if (SHOT) setTimeout(() => { throw e; }); // surface on the visible error overlay during tests
     else if (!this._warned) { this._warned = true; console.warn('[audio]', e); }

@@ -169,7 +169,8 @@ function seg(id, value, onPick) {
   el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; mark(b.dataset.v); onPick(b.dataset.v); });
 }
 const qSel = $('qualitySel');
-const curQuality = params.get('quality') || (SHOT ? 'high' : store.get('quality', 'high'));
+const TOUCH = matchMedia('(pointer: coarse)').matches && /Android|iPad|iPhone|Mobi/i.test(navigator.userAgent); // same test as main.js MOBILE
+const curQuality = params.get('quality') || (SHOT ? 'high' : store.get('quality', TOUCH ? 'mobile' : 'high'));
 seg('qualitySeg', curQuality, (v) => {
   if (!qSel || qSel.value === v) return;
   qSel.value = v; qSel.dispatchEvent(new Event('change', { bubbles: true })); // main.js persists + reloads

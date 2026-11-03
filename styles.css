@@ -652,3 +652,5 @@ html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent
   .panel, .status, .top-actions, .quick-actions, .callout, .modal { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
   .roll-btn::after { animation-iteration-count: 3; animation-fill-mode: forwards; }
 }
+/* the 'Phone' graphics tier is only offered on touch devices */
+@media not (pointer: coarse) { .seg .touch-only { display: none; } }
