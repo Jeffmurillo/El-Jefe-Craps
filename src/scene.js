@@ -554,13 +554,21 @@ function makeResultTag() {
   };
 }
 
-export function createStage({ canvas, quality = 'high', isShot = false } = {}) {
+export function createStage({ canvas, quality = 'high', isShot = false, caps = {} } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: isShot });
   // CPU rasterisers (and every headless ?shot capture) get the 'soft' profile so a frame costs
   // a fraction of a second instead of tens of seconds; real GPUs keep the requested quality.
   const software = isSoftwareRenderer(renderer.getContext());
-  const qName = isShot ? 'soft' : software ? 'cpu' : (QUALITY[quality] ? quality : 'high');
-  let Q = QUALITY[qName];
+  // caps: per-device feature switches learned by main.js's crash guard (a launch that died with MSAA or bloom on
+  // turns that feature off for every tier on this device), plus ?msaa=0 / ?bloom=0 overrides for testing
+  const sp = new URLSearchParams(location.search);
+  const tier = (name) => {
+    const q = { ...(isShot ? QUALITY.soft : software ? QUALITY.cpu : (QUALITY[name] || QUALITY.high)) };
+    if (caps.noMsaa || sp.get('msaa') === '0') q.msaa = 0;
+    if (caps.noBloom || sp.get('bloom') === '0') q.bloom = false;
+    return q;
+  };
+  let Q = tier(quality);
   const viewSize = () => {
     const w = canvas.clientWidth || window.visualViewport?.width || window.innerWidth;
     const h = canvas.clientHeight || window.visualViewport?.height || window.innerHeight;
@@ -941,7 +949,7 @@ export function createStage({ canvas, quality = 'high', isShot = false } = {}) {
     /** Rebuilds everything quality-dependent: pixel ratio, shadow maps, MSAA target, bloom, grade defines, bokeh count. */
     setQuality(name) {
       // software rasterisers stay on the cheap profile whatever the menu says (a 'high' frame would take seconds)
-      Q = isShot ? QUALITY.soft : software ? QUALITY.cpu : (QUALITY[name] || QUALITY.high);
+      Q = tier(name);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pixelRatio));
       key.shadow.mapSize.set(Q.shadow, Q.shadow); key.shadow.map?.dispose(); key.shadow.map = null;
       applyStaticFill();

@@ -1,6 +1,6 @@
 // main.js — bootstrap, game loop, input, HUD wiring, roll flow and deterministic ?shot modes.
 import * as THREE from 'three';
-import { createStage } from './scene.js';
+import { createStage, QUALITY } from './scene.js';
 import { CameraRig, PRESET_ORDER } from './camera.js';
 import { createTable } from './table.js';
 import { DiceSet, pickRollTime } from './dice.js';
@@ -27,13 +27,33 @@ const store = {
 };
 const MOBILE = matchMedia('(pointer: coarse)').matches && /Android|iPad|iPhone|Mobi/i.test(navigator.userAgent);
 // Crash-loop guard: craps.booting is set now and cleared a few seconds after the first frame. Finding it still
-// set means the last launch died while loading (e.g. Android killed the browser), so this one starts on 'low'.
-const BOOT_KEY = 'craps.booting';
-let interruptedBoot = false;
+// set means the last launch died while loading (e.g. Android killed the browser). Rather than dropping straight
+// to 'low', each failed launch turns off one suspect GPU feature for this device (MSAA, then bloom, then the
+// Low tier), so the device settles on the best setup that loads. craps.bootStage records how far a launch got.
+const BOOT_KEY = 'craps.booting', STAGE_KEY = 'craps.bootStage';
+const T0 = performance.now();
+let interruptedBoot = null; // { q, stage, step } when the previous launch died
+const gpuCaps = SHOT ? {} : store.get('gpuCaps', {});
+function crumb(stage) { if (!SHOT) try { localStorage.setItem(STAGE_KEY, JSON.stringify({ s: stage, t: Math.round(performance.now() - T0) })); } catch { } }
 if (!SHOT) {
-  try { interruptedBoot = localStorage.getItem(BOOT_KEY) != null; localStorage.setItem(BOOT_KEY, String(Date.now())); } catch { }
-  if (interruptedBoot && !params.get('quality') && store.get('quality', MOBILE ? 'mobile' : 'high') !== 'low') store.set('quality', 'low');
-  else interruptedBoot = false;
+  let prev = null, reached = null;
+  try { prev = localStorage.getItem(BOOT_KEY); reached = JSON.parse(localStorage.getItem(STAGE_KEY) || 'null'); } catch { }
+  if (prev != null && !params.get('quality')) {
+    let q = store.get('quality', MOBILE ? 'mobile' : 'high');
+    try { const p = JSON.parse(prev); if (p && p.q) q = p.q; } catch { }
+    const tq = QUALITY[q] || QUALITY.high;
+    let step = null;
+    if (tq.msaa > 0 && !gpuCaps.noMsaa) { gpuCaps.noMsaa = true; step = 'msaa'; }
+    else if (tq.bloom && !gpuCaps.noBloom) { gpuCaps.noBloom = true; step = 'bloom'; }
+    else if (q !== 'low') { store.set('quality', 'low'); step = 'low'; }
+    if (step) {
+      store.set('gpuCaps', gpuCaps);
+      interruptedBoot = { q, stage: reached?.s || 'start', t: reached?.t || 0, step };
+      store.set('lastCrash', { ...interruptedBoot, at: Date.now() });
+    }
+  }
+  try { localStorage.setItem(BOOT_KEY, JSON.stringify({ t: Date.now(), q: params.get('quality') || store.get('quality', MOBILE ? 'mobile' : 'high') })); } catch { }
+  crumb('start');
 }
 const settings = {
   // shots run on a software rasteriser: 'medium' (4096 felt, still above screen density) keeps every mode inside the default wait
@@ -50,7 +70,8 @@ const SPEEDS = { normal: { mul: 1, pickup: 0.38, pay: 1 }, fast: { mul: 1.7, pic
 
 // ---------- world ----------
 const canvas = $('gl');
-const stage = createStage({ canvas, quality: settings.quality, isShot: !!SHOT });
+const stage = createStage({ canvas, quality: settings.quality, isShot: !!SHOT, caps: gpuCaps });
+crumb('assets');
 const { scene, camera, renderer } = stage;
 // software WebGL (browser GPU acceleration off): build the light assets too, or the 8K felt alone takes ages
 // phones build the light texture set (2048 felt, 256 chip faces): the 4096 set put Android's GPU process near 1 GB
@@ -855,6 +876,7 @@ $('hardChk').checked = game.settings.hardwaysWorkingOnComeOut; $('hardChk').addE
 {
   const v = document.querySelector('meta[name="app-version"]')?.content || 'dev';
   if ($('appVersion')) $('appVersion').textContent = v === 'dev' ? 'Local build' : v;
+  renderGpuInfo();
   $('updateBtn')?.addEventListener('click', async () => {
     const sw = navigator.serviceWorker;
     if (!sw || !sw.controller) { location.reload(); return; }
@@ -1125,8 +1147,12 @@ function frame(now) {
     const l = $('loader'); l.classList.add('hide'); setTimeout(() => { l.style.display = 'none'; }, 900); // no spinner animating under the table
     if (!SHOT) {
       releaseTextureCanvases(); audio.prerenderSoon?.(); // sound synthesis waits until the table is up
-      setTimeout(() => { try { localStorage.removeItem(BOOT_KEY); } catch { } }, 4000); // this launch made it
-      if (interruptedBoot) setTimeout(() => toast('The last launch didn\'t finish loading, so graphics are now on Low. Change it in Settings.', true, 7000), 1200);
+      crumb('shown');
+      setTimeout(() => { try { localStorage.removeItem(BOOT_KEY); localStorage.removeItem(STAGE_KEY); } catch { } }, 4000); // this launch made it
+      if (interruptedBoot) {
+        const what = { msaa: 'anti-aliasing (MSAA) is now off on this phone', bloom: 'the light-glow effect is now off on this phone', low: 'graphics are now on Low' }[interruptedBoot.step];
+        setTimeout(() => toast(`The last launch didn't finish loading, so ${what}. Details in Settings.`, true, 7000), 1200);
+      }
     }
   }
   if (active) rafId = requestAnimationFrame(frame);
@@ -1140,6 +1166,16 @@ else { chips.sync(game.bets); chips.setRail(game.bankroll); renderHistory(); upd
 puck.set(game.point, { animate: false });
 if (SHOT) { chips.faceTop(); puck.faceToward(); } // square stack tops + puck lettering to the framed shot camera
 window.craps = { game, dice, chips, puck, rig, stage, audio, roll, placeOn, placeChip, sideBets, ui, settings, persist, updateHUD, toast };
+// Settings → Graphics fixes: what the crash guard turned off on this device and where the last failed launch stopped
+function renderGpuInfo() {
+  const row = $('gpuRow'); if (!row) return;
+  const lc = store.get('lastCrash', null), fixes = [gpuCaps.noMsaa && 'MSAA off', gpuCaps.noBloom && 'glow off'].filter(Boolean);
+  row.hidden = !lc && !fixes.length;
+  const stageName = { start: 'starting up', assets: 'building the table', compile: 'preparing shaders', 'first-frame': 'drawing the first frame', shown: 'just after the table appeared' };
+  $('gpuInfo').textContent = (fixes.length ? fixes.join(', ') : 'none')
+    + (lc ? ` · last failed launch: ${lc.q}, ${stageName[lc.stage] || lc.stage} (${(lc.t / 1000).toFixed(1)} s)` : '');
+}
+$('gpuReset')?.addEventListener('click', () => { store.set('gpuCaps', {}); store.set('lastCrash', null); toast('Graphics fixes cleared. Reloading…', true); setTimeout(() => location.reload(), 500); });
 // ---------- startup: compile shaders in the background, then draw ----------
 // A first render compiles ~40 shader programs synchronously: ~6 s of a blocked GPU process on a fast desktop,
 // long enough on a phone for Android's GPU watchdog to kill Chrome. compileAsync issues them all at once and
@@ -1167,7 +1203,8 @@ function liteMaterials() {
 if (settings.quality === 'mobile' && !SHOT) liteMaterials();
 
 let sceneReady = !!SHOT; // ?shot captures keep their synchronous first frame
-const startDraw = () => { if (sceneReady) return; sceneReady = true; if (!rafId) rafId = requestAnimationFrame(frame); };
+const startDraw = () => { if (sceneReady) return; sceneReady = true; crumb('first-frame'); if (!rafId) rafId = requestAnimationFrame(frame); };
+crumb('compile');
 if (SHOT) rafId = requestAnimationFrame(frame);
 else {
   try { stage.precompile().then(startDraw, startDraw); } catch { startDraw(); }
