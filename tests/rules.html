@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Craps Rules Tests</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 500px at 20% -10%, #15301f 0%, #0b0d10 60%) fixed, #0b0d10; color: #e8e4da; font: 13px/1.4 "Segoe UI", Arial, sans-serif; }
+  header { padding: 22px 36px 16px; display: flex; align-items: center; gap: 28px; border-bottom: 1px solid #23262b; flex-wrap: wrap; }
+  #banner { font: 800 56px/1 "Segoe UI", Arial, sans-serif; letter-spacing: 3px; padding: 14px 32px; border-radius: 14px; background: #333; }
+  #banner.pass { background: linear-gradient(180deg, #13804a, #0c5a33); color: #d6ffe8; box-shadow: 0 0 50px #19c27455, inset 0 1px 0 #3fe39a88; }
+  #banner.fail { background: linear-gradient(180deg, #9a1626, #6b0f1a); color: #ffe0e4; box-shadow: 0 0 50px #ff3b5555, inset 0 1px 0 #ff7a8a88; }
+  #summary { font-size: 22px; font-weight: 600; }
+  #summary .fails { margin-top: 8px; font-size: 12px; font-weight: 400; color: #ffb3bc; max-width: 640px; } #summary .fails b { color: #ff5b6b; }
+  #summary small { display: block; color: #9a958a; font-size: 13px; font-weight: 400; margin-top: 5px; }
+  #edges { margin-left: auto; font-size: 12px; color: #b9b3a5; display: grid; grid-template-columns: repeat(4, auto); gap: 2px 18px; }
+  #edges b { color: #d4af37; font-weight: 600; }
+  main { columns: 4 340px; column-gap: 24px; padding: 10px 36px 40px; }
+  .t { break-inside: avoid; display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid #1a1d21; }
+  .t b { width: 40px; flex: none; font-weight: 700; font-size: 11px; padding-top: 1px; }
+  .t i { margin-left: auto; color: #6c6a64; font-style: normal; font-size: 11px; flex: none; }
+  .t.ok b { color: #46d38a; } .t.bad b { color: #ff5b6b; } .t.bad { background: #2a0f13; }
+  .t .msg { color: #ff9aa5; display: block; font-size: 11px; }
+  h2 { break-after: avoid; font-size: 12px; color: #d4af37; letter-spacing: 2px; text-transform: uppercase; margin: 14px 0 4px; border-bottom: 1px solid #3a3320; padding-bottom: 3px; display: flex; gap: 10px; align-items: baseline; }
+  h2 .cnt { margin-left: auto; font-style: normal; letter-spacing: .5px; font-size: 11px; color: #46d38a; font-weight: 600; }
+  h2.bad { color: #ff5b6b; border-bottom-color: #5a1a22; } h2.bad .cnt { color: #ff5b6b; }
+</style>
+</head>
+<body>
+<header><div id="banner">RUNNING…</div><div id="summary"></div><div id="edges"></div></header>
+<main id="out"></main>
+<script>
+  function showErr(m) { const b = document.getElementById('banner'); b.className = 'fail'; b.textContent = 'ERROR'; document.getElementById('summary').textContent = m; }
+  window.onerror = (m, s, l, c, e) => showErr(m + ' @' + l + ':' + c + (e && e.stack ? '\n' + e.stack : ''));
+  window.addEventListener('unhandledrejection', (e) => showErr('Unhandled: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+</script>
+<script type="module">
+import {
+  CrapsGame, makeRng, rollDie, rollDice, autoStrategy, POINTS, payout, vig, betInfo, stickCall, parseBetId,
+  isValidBetId, betGroup, expectedValue, TRUE_ODDS, LAY_ODDS, PLACE_PAYS, WAYS,
+  HOP_IDS, hopId, probAllBeforeSeven, ATS, FIRE_PAYS, sanitizeSettings, PUT_WARN, PUT_RAISE_WARN,
+} from '../src/rules.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0, asserts = 0;
+// every section header carries its own live tally ("12/12"), red if anything in it failed
+let cur = null; const failures = [];
+function section(name) {
+  const h = document.createElement('h2'); h.innerHTML = `<span></span><em class="cnt"></em>`; h.firstChild.textContent = name; out.appendChild(h);
+  cur = { h, pass: 0, fail: 0 }; return cur;
+}
+function tally(sec, okd) { if (!sec) return; okd ? sec.pass++ : sec.fail++; const c = sec.h.querySelector('.cnt'); c.textContent = `${sec.pass}/${sec.pass + sec.fail}`; sec.h.classList.toggle('bad', sec.fail > 0); }
+function test(name, fn) {
+  const row = document.createElement('div');
+  const a0 = asserts;
+  try { fn(); pass++; tally(cur, true); row.className = 't ok'; row.innerHTML = `<b>PASS</b><span>${name}</span><i>${asserts - a0}</i>`; }
+  catch (e) { fail++; failures.push([name, e.message]); tally(cur, false); row.className = 't bad'; row.innerHTML = `<b>FAIL</b><span>${name}<span class="msg">${e.message}</span></span>`; }
+  out.appendChild(row);
+}
+function eq(a, b, what = '') { asserts++; if (a !== b) throw new Error(`${what} expected ${JSON.stringify(b)} got ${JSON.stringify(a)}`); }
+function ok(c, what) { asserts++; if (!c) throw new Error(what || 'assertion failed'); }
+function near(a, b, tol, what = '') { asserts++; if (!(Math.abs(a - b) <= tol)) throw new Error(`${what} expected ≈${b} ±${tol} got ${a}`); }
+const G = (bank = 1000, s) => new CrapsGame({ bankroll: bank, settings: s });
+const ev = (r, id) => r.events.find((e) => e.id === id);
+const DICE = { 2: [1, 1], 3: [1, 2], 4: [1, 3], 5: [1, 4], 6: [2, 4], 7: [3, 4], 8: [3, 5], 9: [4, 5], 10: [4, 6], 11: [5, 6], 12: [6, 6] };
+const HARD = { 4: [2, 2], 6: [3, 3], 8: [4, 4], 10: [5, 5] };
+const R = (g, t) => g.resolveRoll(...DICE[t]);
+function withPoint(g, n) { return R(g, n); }
+const worth = (g) => g.bankroll + g.totalOnTable() + g.prepaidVig();
+const isOff = (e) => !!e && e.type === 'push' && e.off === true && e.down === false;
+
+// ============================================================
+section('Pass Line');
+test('Come-out 7 wins even money and bet stays up', () => { const g = G(); g.placeBet('pass', 10); const r = R(g, 7); eq(ev(r, 'pass').win, 10); eq(ev(r, 'pass').down, false); eq(g.bets.pass, 10); eq(g.bankroll, 1000); eq(r.outcome, 'natural'); });
+test('Come-out 11 wins', () => { const g = G(); g.placeBet('pass', 10); const r = R(g, 11); eq(g.bankroll, 1000); eq(g.bets.pass, 10); eq(r.outcome, 'natural'); });
+for (const t of [2, 3, 12]) test(`Come-out ${t} (craps) loses`, () => { const g = G(); g.placeBet('pass', 10); const r = R(g, t); eq(g.bets.pass, undefined); eq(g.bankroll, 990); eq(g.point, null); eq(r.outcome, 'craps'); });
+for (const n of POINTS) test(`Come-out ${n} sets the point (puck ON ${n})`, () => { const g = G(); g.placeBet('pass', 10); const r = withPoint(g, n); eq(g.point, n); eq(r.outcome, 'point-set'); eq(g.puck.on, true); eq(g.puck.point, n); eq(ev(r, 'pass'), undefined); });
+test('Point made pays 1:1, odds on 6 pay 6:5 and come down', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('passOdds', 50); const r = g.resolveRoll(5, 1); eq(ev(r, 'pass').win, 10); eq(ev(r, 'passOdds').win, 60); eq(ev(r, 'passOdds').down, true); eq(r.outcome, 'point-made'); eq(g.point, null); eq(g.puck.on, false); eq(g.bankroll, 1000 - 10 + 10 + 60); eq(g.bets.pass, 10); eq(g.bets.passOdds, undefined); });
+for (const [n, flat, odds, w] of [[4, 10, 30, 60], [10, 10, 30, 60], [5, 10, 40, 60], [9, 10, 40, 60], [6, 10, 50, 60], [8, 10, 50, 60]]) test(`Pass odds on ${n}: $${odds} pays $${w}`, () => { const g = G(); g.placeBet('pass', flat); R(g, n); eq(g.placeBet('passOdds', odds).ok, true); const r = R(g, n); eq(ev(r, 'passOdds').win, w); eq(ev(r, 'pass').win, flat); });
+test('Point made the hard way still pays the line', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); const r = g.resolveRoll(4, 4); eq(r.outcome, 'point-made'); eq(ev(r, 'pass').win, 10); });
+test('Seven-out loses pass and odds', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); g.placeBet('passOdds', 50); const r = R(g, 7); eq(r.outcome, 'seven-out'); eq(g.bankroll, 940); eq(g.point, null); eq(Object.keys(g.bets).length, 0); eq(r.net, -60); eq(r.totalLost, 60); });
+test('Pass line cannot be removed once point is on (contract)', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); eq(g.canRemove('pass').ok, false); eq(g.removeBet('pass').ok, false); eq(g.bets.pass, 10); eq(g.bankroll, 990); });
+test('Pass line can be removed on come-out', () => { const g = G(); g.placeBet('pass', 10); eq(g.removeBet('pass').ok, true); eq(g.bankroll, 1000); eq(g.bets.pass, undefined); });
+test('Pass line cannot be added or increased after point (put bets disabled)', () => { const g = G(1000, { putBets: false }); g.placeBet('pass', 10); R(g, 8); eq(g.placeBet('pass', 5).ok, false); eq(g.bets.pass, 10); });
+test('Non-decision roll leaves pass alone', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); const r = R(g, 5); eq(g.point, 8); eq(g.bets.pass, 10); eq(r.outcome, 'roll'); eq(ev(r, 'pass'), undefined); });
+test('11 and craps during a point do not affect the line', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); for (const t of [2, 3, 11, 12]) R(g, t); eq(g.point, 8); eq(g.bets.pass, 10); });
+
+// ============================================================
+section('Odds limits & rules');
+for (const [n, m] of [[4, 3], [5, 4], [6, 5], [8, 5], [9, 4], [10, 3]]) test(`3-4-5x: point ${n} max odds ${m}x flat`, () => { const g = G(); g.placeBet('pass', 10); withPoint(g, n); eq(g.maxFor('passOdds'), 10 * m); eq(g.placeBet('passOdds', 10 * m + 1).ok, false); eq(g.placeBet('passOdds', 10 * m).ok, true); });
+test('3-4-5x max odds always win exactly 6x flat', () => { for (const n of POINTS) { const g = G(); g.placeBet('pass', 10); R(g, n); g.placeBet('passOdds', g.maxFor('passOdds')); eq(ev(R(g, n), 'passOdds').win, 60, 'n' + n); } });
+test('Odds require a point', () => { const g = G(); g.placeBet('pass', 10); eq(g.placeBet('passOdds', 10).ok, false); });
+test('Odds require a flat bet', () => { const g = G(); g.placeBet('dontPass', 10); R(g, 6); eq(g.placeBet('passOdds', 10).ok, false); });
+test('Odds can be increased up to the cap in steps', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); eq(g.placeBet('passOdds', 30).ok, true); eq(g.placeBet('passOdds', 20).ok, true); eq(g.placeBet('passOdds', 1).ok, false); eq(g.bets.passOdds, 50); });
+test('Lay odds max 6x flat on every number', () => { for (const n of POINTS) { const g = G(5000); g.placeBet('dontPass', 10); withPoint(g, n); const m = g.maxFor('dontPassOdds'); eq(m, 60, 'n' + n); eq(g.placeBet('dontPassOdds', m + 1).ok, false, 'n' + n); eq(g.placeBet('dontPassOdds', m).ok, true, 'n' + n); } });
+test('Max lay odds win 3x / 4x / 5x flat (mirrors 3-4-5x)', () => { for (const [n, w] of [[4, 30], [10, 30], [5, 40], [9, 40], [6, 50], [8, 50]]) { const g = G(); g.placeBet('dontPass', 10); R(g, n); g.placeBet('dontPassOdds', g.maxFor('dontPassOdds')); eq(ev(R(g, 7), 'dontPassOdds').win, w, 'n' + n); } });
+test('Odds can be taken down any time', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('passOdds', 20); eq(g.removeBet('passOdds').ok, true); eq(g.bankroll, 990); });
+test('Numeric odds setting (10x) caps at 10x flat', () => { const g = G(5000, { odds: 10 }); g.placeBet('pass', 10); R(g, 4); eq(g.maxFor('passOdds'), 100); eq(g.placeBet('passOdds', 101).ok, false); eq(g.placeBet('passOdds', 100).ok, true); eq(ev(R(g, 4), 'passOdds').win, 200); });
+test('Numeric odds setting (2x) lay cap', () => { const g = G(5000, { odds: 2 }); g.placeBet('dontPass', 10); R(g, 4); eq(g.maxFor('dontPassOdds'), 40); });
+test('Odds breakage floors (raw-odds table): $25 odds on 5 pays $37', () => { const g = G(1000, { oddsUnits: false }); g.placeBet('pass', 10); R(g, 5); g.placeBet('passOdds', 25); eq(ev(R(g, 5), 'passOdds').win, 37); });
+test('Odds breakage floors (raw-odds table): $7 odds on 6 pays $8', () => { const g = G(1000, { oddsUnits: false }); g.placeBet('pass', 10); R(g, 6); g.placeBet('passOdds', 7); eq(ev(R(g, 6), 'passOdds').win, 8); });
+test('payableAmount rounds odds/place to clean units', () => { const g = G(); g.placeBet('pass', 10); R(g, 5); eq(g.payableAmount('passOdds', 25), 24); eq(g.payableAmount('place6', 20), 18); eq(g.payableAmount('place5', 13), 10); eq(g.payableAmount('lay4', 41), 40); eq(g.payableAmount('horn', 6), 4); });
+
+// ============================================================
+section("Don't Pass");
+test('Come-out 2 and 3 win', () => { for (const t of [2, 3]) { const g = G(); g.placeBet('dontPass', 10); R(g, t); eq(g.bankroll, 1000); eq(g.bets.dontPass, 10); } });
+test('Come-out 12 is barred (push, stays up)', () => { const g = G(); g.placeBet('dontPass', 10); const r = R(g, 12); eq(ev(r, 'dontPass').type, 'push'); eq(ev(r, 'dontPass').down, false); eq(ev(r, 'dontPass').note, 'Bar 12'); eq(g.bankroll, 990); eq(g.bets.dontPass, 10); eq(r.net, 0); });
+test('Come-out 7/11 lose', () => { for (const t of [7, 11]) { const g = G(); g.placeBet('dontPass', 10); R(g, t); eq(g.bankroll, 990); eq(g.bets.dontPass, undefined); } });
+test('Seven after point wins; lay odds on 4 pay 1:2', () => { const g = G(); g.placeBet('dontPass', 10); R(g, 4); g.placeBet('dontPassOdds', 40); const r = R(g, 7); eq(ev(r, 'dontPass').win, 10); eq(ev(r, 'dontPassOdds').win, 20); eq(g.bankroll, 1000 - 10 + 10 + 20); });
+test('Lay odds on 5/9 pay 2:3', () => { for (const n of [5, 9]) { const g = G(); g.placeBet('dontPass', 10); R(g, n); g.placeBet('dontPassOdds', 60); eq(ev(R(g, 7), 'dontPassOdds').win, 40, 'n' + n); } });
+test('Lay odds on 6/8 pay 5:6', () => { for (const n of [6, 8]) { const g = G(); g.placeBet('dontPass', 10); R(g, n); g.placeBet('dontPassOdds', 60); eq(ev(R(g, 7), 'dontPassOdds').win, 50, 'n' + n); } });
+test("Point repeat loses don't pass and lay odds", () => { const g = G(); g.placeBet('dontPass', 10); R(g, 9); g.placeBet('dontPassOdds', 30); const r = R(g, 9); eq(ev(r, 'dontPass').type, 'lose'); eq(ev(r, 'dontPassOdds').type, 'lose'); eq(g.bankroll, 960); });
+test("Don't pass can be removed after point (takes odds too)", () => { const g = G(); g.placeBet('dontPass', 10); R(g, 9); g.placeBet('dontPassOdds', 30); const rm = g.removeBet('dontPass'); eq(rm.ok, true); eq(rm.removed.length, 2); eq(g.bankroll, 1000); });
+test("Don't pass not accepted after point", () => { const g = G(); g.placeBet('pass', 10); R(g, 9); eq(g.placeBet('dontPass', 10).ok, false); });
+test('Pass and don\'t pass together: 12 on come-out', () => { const g = G(); g.placeBet('pass', 10); g.placeBet('dontPass', 10); const r = R(g, 12); eq(ev(r, 'pass').type, 'lose'); eq(ev(r, 'dontPass').type, 'push'); eq(worth(g), 990); });
+
+// ============================================================
+section("Come / Don't Come");
+test('Come only after point', () => { const g = G(); eq(g.placeBet('come', 10).ok, false); eq(g.placeBet('dontCome', 10).ok, false); });
+test('Cannot bet directly on a come number when put bets are disabled', () => { const g = G(1000, { putBets: false }); g.placeBet('pass', 10); R(g, 6); eq(g.placeBet('come5', 10).ok, false); });
+test('Come travels to the number', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); const r = R(g, 5); eq(ev(r, 'come').type, 'move'); eq(ev(r, 'come').to, 'come5'); eq(g.bets.come5, 10); eq(g.bets.come, undefined); });
+test('Come on 5 wins flat + 3:2 odds, then comes down', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 5); g.placeBet('comeOdds5', 20); const r = g.resolveRoll(1, 4); eq(ev(r, 'come5').win, 10); eq(ev(r, 'come5').down, true); eq(ev(r, 'comeOdds5').win, 30); eq(g.bets.come5, undefined); eq(g.bankroll, 1000 - 10 + 10 + 30); });
+test('Come odds 3-4-5x caps on each number', () => { for (const [n, m] of [[4, 3], [5, 4], [6, 5], [8, 5], [9, 4], [10, 3]]) { const g = G(); g.placeBet('pass', 10); R(g, n === 6 ? 8 : 6); g.placeBet('come', 10); R(g, n); eq(g.maxFor('comeOdds' + n), 10 * m, 'n' + n); } });
+test('Come bar: 7 and 11 win, craps lose', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 11); eq(g.bankroll, 1000); g.placeBet('come', 10); R(g, 2); eq(g.bankroll, 990); });
+test('Come bar 7 wins while pass sevens out', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); const r = R(g, 7); eq(ev(r, 'come').win, 10); eq(ev(r, 'pass').type, 'lose'); eq(g.bankroll, 1000); });
+test('Come odds are OFF on come-out: 7 loses flat, returns odds', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 8); g.placeBet('comeOdds8', 50); g.resolveRoll(3, 3); eq(g.point, null); const r = R(g, 7); eq(ev(r, 'come8').type, 'lose'); eq(ev(r, 'comeOdds8').type, 'push'); eq(ev(r, 'comeOdds8').down, true); });
+test('Come odds OFF on come-out: number hits, flat wins, odds returned', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 8); g.placeBet('comeOdds8', 50); g.resolveRoll(3, 3); const r = g.resolveRoll(4, 4); eq(ev(r, 'come8').win, 10); eq(ev(r, 'comeOdds8').type, 'push'); });
+test('comeOddsWorkingOnComeOut setting pays odds on come-out', () => { const g = G(1000, { comeOddsWorkingOnComeOut: true }); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 8); g.placeBet('comeOdds8', 50); R(g, 6); const r = R(g, 8); eq(ev(r, 'comeOdds8').win, 60); });
+test('Per-bet override: come odds turned ON for the come-out', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 8); g.placeBet('comeOdds8', 50); R(g, 6); g.setWorking('comeOdds8', true); eq(ev(R(g, 8), 'comeOdds8').win, 60); });
+test('Come bet on number cannot be removed (contract)', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 9); eq(g.removeBet('come9').ok, false); eq(g.bets.come9, 10); });
+test('Come off-and-on: new come bet travels to a number that just won', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 5); g.placeBet('come', 15); const r = R(g, 5); eq(ev(r, 'come5').win, 10); eq(ev(r, 'come').to, 'come5'); eq(g.bets.come5, 15); });
+test('Multiple come bets on different numbers all lose on 7', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); for (const t of [4, 9]) { g.placeBet('come', 10); R(g, t); } eq(g.bets.come4, 10); eq(g.bets.come9, 10); R(g, 7); eq(g.totalOnTable(), 0); eq(g.bankroll, 970); });
+test("Don't come travels and wins on 7 with lay odds (1:2 on 10)", () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('dontCome', 10); R(g, 10); eq(g.bets.dontCome10, 10); g.placeBet('dontComeOdds10', 20); const r = R(g, 7); eq(ev(r, 'dontCome10').win, 10); eq(ev(r, 'dontComeOdds10').win, 10); });
+test("Don't come lay odds work on the come-out", () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('dontCome', 10); R(g, 9); g.placeBet('dontComeOdds9', 30); R(g, 6); eq(g.point, null); const r = R(g, 7); eq(ev(r, 'dontComeOdds9').win, 20); });
+test("Don't come on number loses when number repeats", () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('dontCome', 10); R(g, 4); g.placeBet('dontComeOdds4', 20); const r = R(g, 4); eq(ev(r, 'dontCome4').type, 'lose'); eq(ev(r, 'dontComeOdds4').type, 'lose'); });
+test("Don't come bar: 2/3 win, 7/11 lose, 12 pushes", () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('dontCome', 10); eq(ev(R(g, 3), 'dontCome').win, 10); g.placeBet('dontCome', 10); eq(ev(R(g, 11), 'dontCome').type, 'lose'); g.placeBet('dontCome', 10); const r = R(g, 12); eq(ev(r, 'dontCome').type, 'push'); eq(ev(r, 'dontCome').down, false); eq(ev(r, 'dontCome').note, 'Bar 12'); eq(g.bets.dontCome, 10); });
+test("Don't come barred on 12 stays in the box, then travels", () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('dontCome', 10); const b0 = g.bankroll; R(g, 12); eq(g.bankroll, b0); eq(g.bets.dontCome, 10); const r = R(g, 9); eq(ev(r, 'dontCome').to, 'dontCome9'); eq(g.bets.dontCome9, 10); });
+test("Don't pass and don't come both bar 12 identically", () => { const g = G(); g.placeBet('dontPass', 10); const a = ev(R(g, 12), 'dontPass'); R(g, 6); g.placeBet('dontCome', 10); const c = ev(R(g, 12), 'dontCome'); eq(a.type, c.type); eq(a.down, c.down); eq(a.returned, c.returned); });
+test("Don't come on number can be removed, with its odds", () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('dontCome', 10); R(g, 4); g.placeBet('dontComeOdds4', 20); const rm = g.removeBet('dontCome4'); eq(rm.ok, true); eq(rm.removed.length, 2); eq(g.bankroll, 990); });
+
+// ============================================================
+section('Place / Buy / Lay');
+test('Place 6 $12 pays $14 and stays up', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); g.placeBet('place6', 12); const r = g.resolveRoll(2, 4); eq(ev(r, 'place6').win, 14); eq(ev(r, 'place6').down, false); eq(g.bets.place6, 12); });
+test('Place 8 $30 pays $35', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('place8', 30); eq(ev(R(g, 8), 'place8').win, 35); });
+test('Place 5 $10 pays $14; place 4 $10 pays $18', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); g.placeBet('place5', 10); g.placeBet('place4', 10); eq(ev(R(g, 5), 'place5').win, 14); eq(ev(g.resolveRoll(2, 2), 'place4').win, 18); });
+test('Place 9 $5 pays $7; place 10 $5 pays $9', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); g.placeBet('place9', 5); g.placeBet('place10', 5); eq(ev(R(g, 9), 'place9').win, 7); eq(ev(g.resolveRoll(5, 5), 'place10').win, 9); });
+test('Place 6 $5 breakage pays $5', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); g.placeBet('place6', 5); eq(ev(R(g, 6), 'place6').win, 5); });
+test('Place bets lose on seven-out', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); g.placeBet('place6', 12); R(g, 7); eq(g.bets.place6, undefined); });
+test('Place bets are OFF on the come-out by default', () => { const g = G(); g.placeBet('place6', 12); eq(g.isWorking('place6'), false); const r = R(g, 7); ok(isOff(ev(r, 'place6')), 'OFF event'); eq(g.bets.place6, 12); R(g, 6); eq(g.bets.place6, 12); eq(g.isWorking('place6'), true); });
+test('Working toggle: place bets act on the come-out', () => { const g = G(1000, { placeWorkingOnComeOut: true }); g.placeBet('place6', 12); R(g, 7); eq(g.bets.place6, undefined); });
+test('Per-bet OFF during a point: place bet ignores 7', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); g.placeBet('place6', 12); g.setWorking('place6', false); R(g, 6); eq(g.bankroll, 978); R(g, 7); eq(g.bets.place6, 12); g.setWorking('place6', null); eq(g.isWorking('place6'), false, 'default off on come-out'); });
+test('Place bets can be taken down', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); g.placeBet('place6', 12); eq(g.removeBet('place6').ok, true); eq(g.bankroll, 990); });
+test('Buy 4 $20 pays $40 minus $1 vig', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('buy4', 20); eq(ev(R(g, 4), 'buy4').win, 39); });
+test('Buy 10 $40 pays $80 minus $2 vig', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('buy10', 40); eq(ev(R(g, 10), 'buy10').win, 78); });
+test('Buy bets are OFF on come-out by default', () => { const g = G(); g.placeBet('buy4', 20); ok(isOff(ev(R(g, 4), 'buy4')), 'OFF event'); eq(g.bets.buy4, 20); });
+test('Lay 4 $40 wins $20 minus $1 vig on 7', () => { const g = G(); g.placeBet('lay4', 40); eq(ev(R(g, 7), 'lay4').win, 19); eq(g.bets.lay4, 40); });
+test('Lay 6 $60 wins $50 minus $2 vig', () => { const g = G(); g.placeBet('lay6', 60); eq(ev(R(g, 7), 'lay6').win, 48); });
+test('Lay 4 loses on 4', () => { const g = G(); g.placeBet('lay4', 40); R(g, 4); eq(g.bets.lay4, undefined); eq(g.bankroll, 960); });
+test('Vig helper: 5%, minimum $1, floored', () => { eq(vig(20), 1); eq(vig(10), 1); eq(vig(100), 5); eq(vig(39), 1); eq(vig(60), 3); });
+
+// ============================================================
+section('Field / Big 6-8 / Hardways');
+test('Field 2 pays 2:1, 12 pays 3:1', () => { const g = G(); g.placeBet('field', 10); eq(ev(R(g, 2), 'field').win, 20); eq(ev(R(g, 12), 'field').win, 30); });
+test('Field 12 pays 2:1 when configured', () => { const g = G(1000, { fieldTwelvePays: 2 }); g.placeBet('field', 10); eq(ev(R(g, 12), 'field').win, 20); });
+test('Field 3,4,9,10,11 pay 1:1', () => { for (const t of [3, 4, 9, 10, 11]) { const g = G(); g.placeBet('field', 10); eq(ev(R(g, t), 'field').win, 10, 't' + t); } });
+test('Field 5,6,7,8 lose', () => { for (const t of [5, 6, 7, 8]) { const g = G(); g.placeBet('field', 10); eq(ev(R(g, t), 'field').type, 'lose', 't' + t); } });
+test('Field winning bet stays up', () => { const g = G(); g.placeBet('field', 10); R(g, 9); eq(g.bets.field, 10); });
+test('Big 6 / Big 8 pay even money, lose on 7', () => { const g = G(); g.placeBet('big6', 10); g.placeBet('big8', 10); eq(ev(R(g, 6), 'big6').win, 10); eq(ev(R(g, 8), 'big8').win, 10); R(g, 7); eq(g.totalOnTable(), 0); });
+for (const [n, w] of [[4, 35], [6, 45], [8, 45], [10, 35]]) test(`Hard ${n} $5 pays $${w}`, () => { const g = G(); g.placeBet('pass', 10); R(g, n === 6 ? 5 : 6); g.placeBet('hard' + n, 5); const r = g.resolveRoll(...HARD[n]); eq(ev(r, 'hard' + n).win, w); eq(g.bets['hard' + n], 5); });
+test('Hardways lose on easy way', () => { for (const n of [4, 6, 8, 10]) { const g = G(); g.placeBet('pass', 10); R(g, n === 5 ? 6 : 5); g.placeBet('hard' + n, 5); eq(ev(R(g, n), 'hard' + n).type, 'lose', 'n' + n); } });
+test('Hardways lose on 7', () => { const g = G(); g.placeBet('pass', 10); R(g, 5); for (const n of [4, 6, 8, 10]) g.placeBet('hard' + n, 5); const r = R(g, 7); eq(r.events.filter((e) => /^hard/.test(e.id) && e.type === 'lose').length, 4); });
+test('Hardways unaffected by other numbers', () => { const g = G(); g.placeBet('pass', 10); R(g, 5); g.placeBet('hard8', 5); for (const t of [2, 3, 4, 5, 6, 9, 10, 11, 12]) R(g, t); eq(g.bets.hard8, 5); });
+test('Hardways are OFF on the come-out', () => { const g = G(); g.placeBet('hard6', 5); ok(isOff(ev(R(g, 7), 'hard6')), 'OFF event'); eq(g.bets.hard6, 5); });
+test('Hardways working on come-out when set', () => { const g = G(1000, { hardwaysWorkingOnComeOut: true }); g.placeBet('hard6', 5); eq(ev(R(g, 7), 'hard6').type, 'lose'); });
+
+// ============================================================
+section('One-roll propositions');
+test('Any 7 pays 4:1', () => { const g = G(); g.placeBet('any7', 5); eq(ev(R(g, 7), 'any7').win, 20); });
+test('Any craps pays 7:1 on 2, 3, 12', () => { for (const t of [2, 3, 12]) { const g = G(); g.placeBet('anyCraps', 5); eq(ev(R(g, t), 'anyCraps').win, 35, 't' + t); } });
+test('Two & Twelve pay 30:1; Three & Eleven pay 15:1', () => { const g = G(); for (const [id, t, w] of [['two', 2, 30], ['twelve', 12, 30], ['three', 3, 15], ['eleven', 11, 15]]) { g.placeBet(id, 1); eq(ev(R(g, t), id).win, w, id); g.removeBet(id); } });
+test('One-roll bets lose on any other number', () => { const g = G(); g.placeBet('two', 1); g.placeBet('any7', 5); g.placeBet('anyCraps', 1); g.placeBet('eleven', 1); R(g, 8); eq(g.totalOnTable(), 0); });
+test('Winning one-roll bets stay up for next roll', () => { const g = G(); g.placeBet('eleven', 5); R(g, 11); eq(g.bets.eleven, 5); eq(g.bankroll, 1070); });
+test('Horn $4: 2 nets $27, 11 nets $12, 7 loses', () => { const g = G(); g.placeBet('horn', 4); eq(ev(R(g, 2), 'horn').win, 27); eq(ev(R(g, 11), 'horn').win, 12); R(g, 7); eq(g.bets.horn, undefined); });
+test('Horn $4: 12 nets $27, 3 nets $12', () => { const g = G(); g.placeBet('horn', 4); eq(ev(R(g, 12), 'horn').win, 27); eq(ev(R(g, 3), 'horn').win, 12); });
+test('Horn $8 on 12 nets $54', () => { const g = G(); g.placeBet('horn', 8); eq(ev(R(g, 12), 'horn').win, 54); });
+test('Horn minimum $4', () => { const g = G(); eq(g.placeBet('horn', 3).ok, false); });
+test('Horn only in $4 units: $5/$6/$7 rejected, $12 accepted', () => { const g = G(); for (const a of [5, 6, 7, 9]) { const v = g.placeBet('horn', a); eq(v.ok, false, '$' + a); eq(v.reason, 'Horn bets are in $4 units'); } eq(g.placeBet('horn', 12).ok, true); eq(g.placeBet('horn', 1).ok, false, 'total 13'); eq(g.placeBet('horn', 4).ok, true, 'total 16'); eq(g.bankroll, 984); });
+test('Horn $12 on 2 nets $81 exactly, on 3 nets $36', () => { const g = G(); g.placeBet('horn', 12); eq(ev(R(g, 2), 'horn').win, 81); eq(ev(R(g, 3), 'horn').win, 36); });
+test('C&E only in $2 units', () => { const g = G(); eq(g.placeBet('ce', 3).reason, 'C & E bets are in $2 units'); eq(g.placeBet('ce', 5).ok, false); eq(g.placeBet('ce', 4).ok, true); eq(ev(R(g, 11), 'ce').win, 28); });
+test('Horn High 12 ($5): 12 nets $57, 2 nets $26, 3/11 net $11, 7 loses', () => { const g = G(); g.placeBet('hornHigh12', 5); eq(ev(R(g, 12), 'hornHigh12').win, 57); eq(ev(R(g, 2), 'hornHigh12').win, 26); eq(ev(R(g, 3), 'hornHigh12').win, 11); eq(ev(R(g, 11), 'hornHigh12').win, 11); eq(ev(R(g, 7), 'hornHigh12').type, 'lose'); eq(g.bets.hornHigh12, undefined); });
+test('Horn High 3 ($5): 3 nets $27, 11 nets $11, 2/12 net $26', () => { const g = G(); g.placeBet('hornHigh3', 5); eq(ev(R(g, 3), 'hornHigh3').win, 27); eq(ev(R(g, 11), 'hornHigh3').win, 11); eq(ev(R(g, 2), 'hornHigh3').win, 26); eq(ev(R(g, 12), 'hornHigh3').win, 26); });
+test('Horn High in $5 units ($10 on 11 high nets $54)', () => { const g = G(); eq(g.placeBet('hornHigh11', 6).ok, false); eq(g.placeBet('hornHigh11', 10).ok, true); eq(ev(R(g, 11), 'hornHigh11').win, 54); });
+test('World $5: 2/12 net $26, 3/11 net $11, 7 pushes and stays, others lose', () => { const g = G(); g.placeBet('world', 5); eq(ev(R(g, 2), 'world').win, 26); eq(ev(R(g, 12), 'world').win, 26); eq(ev(R(g, 3), 'world').win, 11); eq(ev(R(g, 11), 'world').win, 11); const b0 = g.bankroll; const p = ev(R(g, 7), 'world'); eq(p.type, 'push'); eq(p.down, false); eq(g.bankroll, b0); eq(g.bets.world, 5); eq(ev(R(g, 8), 'world').type, 'lose'); eq(g.bets.world, undefined); });
+test('World in $5 units ($10 on 2 nets $52)', () => { const g = G(); eq(g.placeBet('world', 6).reason, 'World (Whirl) bets are in $5 units'); g.placeBet('world', 10); eq(ev(R(g, 2), 'world').win, 52); });
+test('Hop 1-5 pays 15:1 in either dice order, loses on 2-4', () => { const g = G(); g.placeBet('hop15', 2); eq(ev(g.resolveRoll(1, 5), 'hop15').win, 30); eq(ev(g.resolveRoll(5, 1), 'hop15').win, 30); eq(g.bets.hop15, 2); eq(ev(g.resolveRoll(2, 4), 'hop15').type, 'lose'); });
+test('Hard hop 3-3 pays 30:1; easy six does not pay it', () => { const g = G(); g.placeBet('hop33', 1); eq(ev(g.resolveRoll(3, 3), 'hop33').win, 30); eq(ev(g.resolveRoll(1, 5), 'hop33').type, 'lose'); });
+test('Hop ids: 21 combos, canonical low-high only', () => { eq(HOP_IDS.length, 21); eq(isValidBetId('hop51'), false); eq(isValidBetId('hop15'), true); eq(isValidBetId('hop70'), false); eq(hopId(6, 2), 'hop26'); eq(G().placeBet('hop51', 1).ok, false); });
+test('Multiple hops: only the matching one pays', () => { const g = G(); g.placeBet('hop16', 1); g.placeBet('hop25', 1); g.placeBet('hop34', 1); const r = g.resolveRoll(4, 3); eq(ev(r, 'hop34').win, 15); eq(ev(r, 'hop16').type, 'lose'); eq(ev(r, 'hop25').type, 'lose'); eq(r.net, 13); });
+test('C&E $2: craps nets $6, eleven nets $14, 7 loses', () => { const g = G(); g.placeBet('ce', 2); eq(ev(R(g, 3), 'ce').win, 6); eq(ev(R(g, 11), 'ce').win, 14); eq(ev(R(g, 12), 'ce').win, 6); R(g, 7); eq(g.bets.ce, undefined); });
+
+// ============================================================
+section('Table limits & validation');
+test('Table minimum enforced on flat bets', () => { const g = G(); eq(g.placeBet('pass', 1).ok, false); eq(g.placeBet('field', 4).ok, false); eq(g.placeBet('field', 5).ok, true); });
+test('Table maximum enforced (cumulative)', () => { const g = G(100000); eq(g.placeBet('pass', 5001).ok, false); eq(g.placeBet('pass', 4000).ok, true); eq(g.placeBet('pass', 1001).ok, false); eq(g.placeBet('pass', 1000).ok, true); });
+test('Cannot bet more than bankroll', () => { const g = G(20); eq(g.placeBet('pass', 25).ok, false); eq(g.bankroll, 20); });
+test('Rejects zero, negative, fractional, NaN amounts', () => { const g = G(); for (const a of [0, -5, 5.5, NaN, Infinity]) eq(g.placeBet('field', a).ok, false, String(a)); eq(g.bankroll, 1000); });
+test('Rejects unknown bet ids', () => { const g = G(); eq(g.placeBet('place7', 10).ok, false); eq(g.placeBet('bogus', 10).ok, false); eq(isValidBetId('place7'), false); eq(isValidBetId('come10'), true); });
+test('Invalid dice throw RangeError', () => { const g = G(); let threw = false; try { g.resolveRoll(0, 7); } catch (e) { threw = e instanceof RangeError; } ok(threw, 'expected RangeError'); });
+test('Payouts floor to whole dollars (breakage)', () => { eq(payout(5, [7, 6]), 5); eq(payout(5, [3, 2]), 7); eq(payout(6, [7, 6]), 7); eq(payout(30, [6, 5]), 36); });
+test('Removing a nonexistent bet fails cleanly', () => { const g = G(); const r = g.removeBet('field'); eq(r.ok, false); eq(r.removed.length, 0); });
+
+// ============================================================
+section('Events, info & persistence');
+test('Emits bet/remove/reject/roll/point/resolve events', () => {
+  const g = G(); const seen = []; g.on('*', (type) => seen.push(type)); let pt = null; g.on('point', (p) => { pt = p; });
+  g.placeBet('pass', 10); g.placeBet('pass', 0); g.placeBet('field', 5); g.removeBet('field'); R(g, 6);
+  ok(seen.includes('bet') && seen.includes('reject') && seen.includes('remove') && seen.includes('roll') && seen.includes('point'), seen.join(','));
+  eq(pt.to, 6); eq(pt.from, null);
+});
+test('Unsubscribe stops events', () => { const g = G(); let n = 0; const off = g.on('bet', () => n++); g.placeBet('field', 5); off(); g.placeBet('field', 5); eq(n, 1); });
+test('Resolution events carry seq, name and returned amount', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('passOdds', 50); const r = R(g, 6); const e = ev(r, 'passOdds'); eq(e.name, 'Pass Line Odds'); eq(e.returned, 110); eq(typeof e.seq, 'number'); eq(ev(r, 'pass').returned, 10); });
+test('Events ordered: win/lose resolutions match bankroll change', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('passOdds', 50); g.placeBet('place8', 12); g.placeBet('field', 5); g.placeBet('hard6', 5); const before = worth(g); const r = R(g, 7); eq(worth(g) - before, r.net); eq(r.events.length, 5); });
+test('betInfo names and payout strings', () => { eq(betInfo('place6').name, 'Place 6'); eq(betInfo('place6').pays, '7:6'); eq(betInfo('lay4').pays.startsWith('1:2'), true); eq(betInfo('any7').oneRoll, true); eq(betInfo('hard8').pays, '9:1'); eq(betInfo('pass').oneRoll, false); eq(betInfo('comeOdds9').pays, '3:2'); });
+test('betGroup / parseBetId', () => { eq(betGroup('come5'), 'come'); eq(betGroup('lay4'), 'box'); eq(betGroup('horn'), 'prop'); eq(betGroup('dontPassOdds'), 'line'); eq(parseBetId('dontComeOdds10').n, 10); eq(parseBetId('dontComeOdds10').kind, 'dontComeOdds'); });
+test('Stickman calls', () => { eq(stickCall(3, 4, 6), 'Seven Out!'); eq(stickCall(3, 4, null), 'Seven, Winner!'); eq(stickCall(2, 2, 6), 'Four, the hard way'); eq(stickCall(1, 3, null), 'Easy four'); eq(stickCall(2, 4, 8), 'Easy six'); eq(stickCall(4, 4, 6), 'Eight, the hard way'); eq(stickCall(5, 6, null), 'Yo-leven, Winner!'); ok(stickCall(3, 3, 6).includes('Pay the Line'), 'point call'); });
+test('winFor previews profits', () => { const g = G(); eq(g.winFor('place6', 12), 14); eq(g.winFor('buy4', 20), 39); eq(g.winFor('lay4', 40), 19); eq(g.winFor('hard8', 5), 45); eq(g.winFor('horn', 4), 27); eq(g.winFor('any7', 5), 20); });
+test('Stats: rolls, points made, seven-outs, longest hand', () => { const g = G(); for (const t of [6, 5, 6, 8, 3, 8, 4, 7]) R(g, t); eq(g.stats.rolls, 8); eq(g.stats.pointsMade, 2); eq(g.stats.sevenOuts, 1); eq(g.stats.longestRoll, 8); eq(g.stats.currentRoll, 0); });
+test('History records rolls and caps at 500', () => { const g = G(); for (let i = 0; i < 520; i++) R(g, 9); eq(g.history.length, 500); eq(g.history[499].total, 9); });
+test('serialize / restore round-trip', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); g.placeBet('passOdds', 20); g.placeBet('place8', 12); g.setWorking('place8', false); const s = JSON.parse(JSON.stringify(g.serialize())); const h = CrapsGame.restore(s); eq(h.point, 6); eq(h.bets.passOdds, 20); eq(h.bankroll, g.bankroll); eq(h.isWorking('place8'), false); eq(ev(h.resolveRoll(3, 3), 'passOdds').win, 24); });
+test('restore() discards corrupt bets', () => { const h = CrapsGame.restore({ bankroll: 50, point: 7, bets: { pass: 10, bogus: 5, field: -3 } }); eq(h.point, null); eq(h.bets.pass, 10); eq(h.bets.bogus, undefined); eq(h.bets.field, undefined); });
+
+// ============================================================
+section('One box per number (place / buy)');
+test('Buy 6 rejected while Place 6 is up', () => { const g = G(); g.placeBet('place6', 12); const v = g.placeBet('buy6', 25); eq(v.ok, false); eq(v.reason, 'You already have a Place bet on 6 — take it down to buy it'); eq(g.bets.buy6, undefined); });
+test('Place 4 rejected while Buy 4 is up', () => { const g = G(); g.placeBet('buy4', 20); const v = g.placeBet('place4', 10); eq(v.ok, false); ok(/Buy bet on 4/.test(v.reason), v.reason); });
+test('Place 6 + Buy 8 on different numbers is fine; take down then buy works', () => { const g = G(); eq(g.placeBet('place6', 12).ok, true); eq(g.placeBet('buy8', 25).ok, true); g.removeBet('place6'); eq(g.placeBet('buy6', 25).ok, true); });
+
+// ============================================================
+section('Working ON/OFF (per bet, lammers)');
+test('canToggleWorking: box, odds, hardways, big 6/8 only', () => { const g = G(); for (const id of ['place6', 'buy4', 'lay10', 'comeOdds5', 'dontComeOdds9', 'hard8', 'big6']) eq(g.canToggleWorking(id), true, id); for (const id of ['pass', 'field', 'come', 'horn', 'any7', 'hop15', 'foo']) eq(g.canToggleWorking(id), false, id); });
+test('offBets on the come-out: place, buy, hardways, come odds are OFF; lay, field, line are not', () => {
+  const g = G(5000); g.placeBet('pass', 10); R(g, 6); g.placeBet('come', 10); R(g, 5); g.placeBet('comeOdds5', 20); R(g, 6); // point made: come-out
+  for (const [id, a] of [['place8', 12], ['buy4', 20], ['hard8', 5], ['lay10', 40], ['field', 5], ['big6', 10]]) g.placeBet(id, a);
+  const off = g.offBets().sort(); eq(off.join(','), ['buy4', 'comeOdds5', 'hard8', 'place8'].sort().join(','));
+});
+test('Everything works again once the point is on (no OFF lammers)', () => { const g = G(); g.placeBet('place8', 12); g.placeBet('hard6', 5); eq(g.offBets().length, 2); g.placeBet('pass', 10); R(g, 5); eq(g.offBets().length, 0); });
+test('toggleWorking turns one place bet ON for the come-out (and 7 then takes it)', () => { const g = G(); g.placeBet('place6', 12); g.placeBet('place8', 12); const t = g.toggleWorking('place6'); eq(t.ok, true); eq(t.working, true); eq(g.isWorking('place8'), false); const r = R(g, 7); eq(ev(r, 'place6').type, 'lose'); ok(isOff(ev(r, 'place8')), 'place8 OFF event'); eq(g.bets.place8, 12); });
+test('toggleWorking turns one place bet OFF during a point', () => { const g = G(); g.placeBet('pass', 10); R(g, 5); g.placeBet('place6', 12); g.placeBet('place8', 12); eq(g.toggleWorking('place8').working, false); eq(g.offBets().join(), 'place8'); const r = R(g, 8); ok(isOff(ev(r, 'place8')), 'OFF event'); eq(ev(r, 'place8').note, 'Off'); R(g, 6); eq(g.bankroll, 1000 - 34 + 14); });
+test('toggleWorking rejects missing and always-working bets', () => { const g = G(); eq(g.toggleWorking('place6').ok, false); g.placeBet('field', 5); const t = g.toggleWorking('field'); eq(t.ok, false); ok(/always working/.test(t.reason), t.reason); eq(g.working.field, undefined); });
+test("'working' event fires on toggle with the new state", () => { const g = G(); let got = null; g.on('working', (p) => { got = p; }); g.placeBet('hard4', 5); g.toggleWorking('hard4'); eq(got.id, 'hard4'); eq(got.working, true); });
+test('Override cleared when the bet comes down', () => { const g = G(); g.placeBet('pass', 10); R(g, 5); g.placeBet('place6', 12); g.setWorking('place6', false); g.removeBet('place6'); eq(g.working.place6, undefined); });
+test('Hard way OFF with override: easy 8 does not lose it', () => { const g = G(); g.placeBet('pass', 10); R(g, 5); g.placeBet('hard8', 5); g.toggleWorking('hard8'); R(g, 8); eq(g.bets.hard8, 5); });
+
+// ============================================================
+section('Put bets');
+test('Put pass after the point: accepted, contract, takes odds', () => { const g = G(); R(g, 6); eq(g.point, 6); eq(g.placeBet('pass', 10).ok, true); eq(g.canRemove('pass').ok, false); eq(g.maxFor('passOdds'), 50); g.placeBet('passOdds', 50); const r = R(g, 6); eq(ev(r, 'pass').win, 10); eq(ev(r, 'passOdds').win, 60); });
+test('Put pass loses on seven-out', () => { const g = G(); R(g, 9); g.placeBet('pass', 10); eq(ev(R(g, 7), 'pass').type, 'lose'); });
+test('Put bet name in tooltip info, normal pass name in events', () => { const g = G(); R(g, 6); ok(/Put Bet/.test(g.betInfo('pass').name), g.betInfo('pass').name); const h = G(); h.placeBet('pass', 10); R(h, 6); eq(h.betInfo('pass').name, 'Pass Line'); eq(ev(R(h, 6), 'pass').name, 'Pass Line'); });
+test('Put on a come number (come6) during the point', () => { const g = G(); g.placeBet('pass', 10); R(g, 8); eq(g.placeBet('come6', 10).ok, true); eq(g.betInfo('come5').name, 'Put 5'); eq(g.removeBet('come6').ok, false); g.placeBet('comeOdds6', 50); const r = R(g, 6); eq(ev(r, 'come6').win, 10); eq(ev(r, 'comeOdds6').win, 60); });
+test('Put on come numbers not accepted on the come-out', () => { const g = G(); eq(g.placeBet('come6', 10).ok, false); });
+test("Don't come numbers can never be bought directly", () => { const g = G(); g.placeBet('pass', 10); R(g, 8); eq(g.placeBet('dontCome6', 10).ok, false); });
+
+// ============================================================
+section('Fire Bet');
+const shoot = (g, seq) => { for (const x of seq) Array.isArray(x) ? g.resolveRoll(...x) : R(g, x); };
+test('Accepted only before the shooter\'s first roll; contract after', () => { const g = G(); eq(g.placeBet('fire', 5).ok, true); R(g, 8); eq(g.placeBet('fire', 5).ok, false); eq(g.canRemove('fire').ok, false); const h = G(); h.placeBet('fire', 5); eq(h.removeBet('fire').ok, true); });
+test('Three points then seven-out loses', () => { const g = G(); g.placeBet('fire', 5); shoot(g, [4, 4, 5, 5, 6, 6, 8, 7]); eq(g.bets.fire, undefined); eq(g.bankroll, 995); });
+test('Four unique points pays 24:1 at the seven-out', () => { const g = G(); g.placeBet('fire', 5); shoot(g, [4, 4, 5, 5, 6, 6, 4, 4, 9, 9, 8, 7]); const r = g.history.at(-1); eq(r.outcome, 'seven-out'); eq(g.bets.fire, undefined); eq(g.bankroll, 1000 + 5 * FIRE_PAYS[4]); });
+test('Repeated points count once', () => { const g = G(); g.placeBet('fire', 1); const r = []; shoot(g, [4, 4, 4, 4, 4, 4, 5, 5]); eq(g.firePoints.join(), '4,5'); });
+test('All six points pays 999:1 at once', () => { const g = G(); g.placeBet('fire', 1); let r; for (const n of POINTS) { R(g, n); r = R(g, n); } eq(ev(r, 'fire').win, 999); eq(ev(r, 'fire').down, true); eq(g.bankroll, 1999); });
+test('Fire points reset for the next shooter', () => { const g = G(); shoot(g, [4, 4, 5, 5, 6, 7]); eq(g.firePoints.length, 0); eq(g.placeBet('fire', 5).ok, true); });
+
+// ============================================================
+section('All / Tall / Small');
+test('Small: 2-3-4-5-6 before a 7 pays 34:1 and comes down', () => { const g = G(); g.placeBet('small', 5); let r; for (const t of [2, 3, 3, 4, 5]) eq(ev(R(g, t), 'small'), undefined, 't' + t); r = R(g, 6); eq(ev(r, 'small').win, 170); eq(ev(r, 'small').down, true); eq(g.bankroll, 1170); });
+test('Tall loses on a 7 (including a come-out 7)', () => { const g = G(); g.placeBet('tall', 5); R(g, 8); R(g, 12); eq(ev(R(g, 7), 'tall').type, 'lose'); });
+test('Make \'Em All: needs every total, pays 175:1', () => { const g = G(); g.placeBet('all', 1); for (const t of [2, 3, 4, 5, 6, 8, 9, 10, 11]) R(g, t); eq(ev(R(g, 12), 'all').win, 175); });
+test('ATS only before any number rolls since the last 7', () => { const g = G(); R(g, 4); eq(g.placeBet('small', 5).ok, false); R(g, 7); eq(g.placeBet('small', 5).ok, true); R(g, 5); eq(g.canRemove('small').ok, false); });
+test('ATS edge with engine payouts: Small/Tall 7.76%, All 7.46%', () => { for (const [k, e] of [['small', 7.76], ['tall', 7.76], ['all', 7.46]]) { const p = probAllBeforeSeven(ATS[k].nums); near((-(p * ATS[k].pays - (1 - p))) * 100, e, 0.02, k); } });
+
+// ============================================================
+section('Table-aware info, previews & press');
+test('game.betInfo reads field settings', () => { const g = G(1000, { fieldTwelvePays: 2 }); ok(g.betInfo('field').pays.includes('12 pays 2:1'), g.betInfo('field').pays); ok(G().betInfo('field').pays.includes('12 pays 3:1'), 'default'); const h = G(1000, { fieldTwoPays: 3 }); h.placeBet('field', 10); eq(ev(R(h, 2), 'field').win, 30); ok(h.betInfo('field').pays.includes('2 pays 3:1'), 'two'); });
+test('game.betInfo reads vig rate', () => { const g = G(1000, { vigRate: 0.04 }); ok(g.betInfo('buy4').pays.includes('4% commission on the bet'), g.betInfo('buy4').pays); ok(g.betInfo('lay4').pays.includes('4% of the win'), g.betInfo('lay4').pays); ok(G().betInfo('buy4').pays.includes('5% commission'), 'default'); });
+test('game.betInfo shows the true odds for the current point', () => { const g = G(); g.placeBet('pass', 10); R(g, 6); ok(g.betInfo('passOdds').pays.startsWith('6:5'), g.betInfo('passOdds').pays); g.placeBet('dontCome', 10); });
+test('preview warns about breakage: $5 on Place 6', () => { const g = G(); const p = g.preview('place6', 5); eq(p.win, 5); eq(p.clean, false); eq(p.suggest, 6); eq(p.warn, '$5 on Place 6 pays only $5 — bet $6 to win $7'); eq(g.preview('place6', 12).warn, ''); eq(g.preview('place6', 12).win, 14); });
+test('preview of odds on 5 with an odd amount suggests even', () => { const g = G(); g.placeBet('pass', 10); R(g, 5); const p = g.preview('passOdds', 25); eq(p.win, 37); eq(p.suggest, 26); ok(p.warn.includes('bet $26'), p.warn); });
+test('preview warns when vig minimum exceeds the rate', () => { const g = G(); ok(g.preview('buy4', 10).warn.includes('$1'), 'buy4 $10'); eq(g.preview('buy4', 20).warn, ''); eq(g.preview('lay4', 40).warn, ''); ok(g.preview('lay4', 20).warn.length > 0, 'lay4 $20'); });
+test('preview carries validation result and working flag', () => { const g = G(); const p = g.preview('place6', 12); eq(p.validation.ok, true); eq(p.working, false); eq(g.preview('horn', 5).validation.ok, false); });
+test('pressAmount: buy 4 $20 won $39 -> add $39', () => { const g = G(); g.placeBet('buy4', 20); eq(g.pressAmount('buy4', 39), 39); });
+test('pressAmount keeps place 6/8 in $6 units and 5/9 in $5 units', () => { const g = G(); g.placeBet('place6', 12); eq(g.pressAmount('place6', 14), 12); g.placeBet('place5', 10); eq(g.pressAmount('place5', 14), 10); g.placeBet('place9', 25); eq(g.pressAmount('place9', 35), 35); });
+test('pressAmount is 0 with no bet or no win', () => { const g = G(); eq(g.pressAmount('place6', 14), 0); g.placeBet('place6', 6); eq(g.pressAmount('place6', 0), 0); });
+test('winFor previews new bets', () => { const g = G(); eq(g.winFor('world', 5), 26); eq(g.winFor('hornHigh12', 5), 57); eq(g.winFor('hop33', 2), 60); eq(g.winFor('hop14', 2), 30); eq(g.winFor('small', 5), 170); eq(g.winFor('fire', 5), 120); eq(g.unitFor('world'), 5); eq(g.payableAmount('ce', 5), 4); });
+
+// ============================================================
+section('restore() validation');
+const conserve = (o) => { const h = CrapsGame.restore(o); const before = o.bankroll + Object.values(o.bets || {}).filter((a) => Number.isInteger(a) && a > 0).reduce((a, b) => a + b, 0); return [h, before]; };
+test('Orphan pass odds (no flat) refunded', () => { const [h, v] = conserve({ bankroll: 100, point: 6, bets: { passOdds: 50 } }); eq(h.bets.passOdds, undefined); eq(h.bankroll, 150); eq(h.totalValue(), v); });
+test('Pass odds with no point refunded', () => { const h = CrapsGame.restore({ bankroll: 100, point: null, bets: { pass: 10, passOdds: 20, dontPassOdds: 20 } }); eq(h.bets.pass, 10); eq(h.bets.passOdds, undefined); eq(h.bets.dontPassOdds, undefined); eq(h.bankroll, 140); });
+test('Odds above the 3-4-5x cap trimmed to the cap, excess refunded', () => { const [h, v] = conserve({ bankroll: 0, point: 4, bets: { pass: 10, passOdds: 100, dontPass: 10, dontPassOdds: 500 } }); eq(h.bets.passOdds, 30); eq(h.bets.dontPassOdds, 60); eq(h.totalValue(), v); });
+test('Come odds without a come bet dropped; capped with one', () => { const [h, v] = conserve({ bankroll: 0, point: 6, bets: { comeOdds5: 20, come9: 10, comeOdds9: 90, dontCome4: 10, dontComeOdds4: 30 } }); eq(h.bets.comeOdds5, undefined); eq(h.bets.comeOdds9, 40); eq(h.bets.dontComeOdds4, 30); eq(h.totalValue(), v); });
+test('Bar come bets with the puck OFF refunded', () => { const h = CrapsGame.restore({ bankroll: 0, point: null, bets: { come: 10, dontCome: 10 } }); eq(h.totalOnTable(), 0); eq(h.bankroll, 20); });
+test('Flats above the table max capped', () => { const [h, v] = conserve({ bankroll: 0, point: null, bets: { pass: 9000, field: 6000 } }); eq(h.bets.pass, 5000); eq(h.bets.field, 5000); eq(h.totalValue(), v); });
+test('Place + buy on one number: only one survives; bad horn units refunded', () => { const [h, v] = conserve({ bankroll: 0, point: 6, bets: { place8: 12, buy8: 25, horn: 5, ce: 3, world: 7 } }); eq(!!h.bets.place8 + !!h.bets.buy8, 1); eq(h.bets.horn, undefined); eq(h.bets.ce, undefined); eq(h.bets.world, undefined); eq(h.totalValue(), v); });
+test('working: only booleans for toggleable bets on the table', () => { const h = CrapsGame.restore({ bankroll: 100, point: 6, bets: { place8: 12, place6: 12, field: 5 }, working: { foo: true, place8: 'yes', place6: false, field: false, place5: true } }); eq(JSON.stringify(h.working), '{"place6":false}'); eq(h.isWorking('place8'), true); });
+test('stats/settings: unknown keys and wrong types ignored', () => { const h = CrapsGame.restore({ bankroll: 100, settings: { tableMax: '9', bogus: 1, fieldTwelvePays: 2, odds: -3 }, stats: { rolls: 12, foo: 3, pointsMade: 'x' } }); eq(h.settings.tableMax, 5000); eq(h.settings.bogus, undefined); eq(h.settings.fieldTwelvePays, 2); eq(h.settings.odds, '345'); eq(h.stats.rolls, 12); eq(h.stats.foo, undefined); eq(h.stats.pointsMade, 0); });
+test('Garbage input gives a clean default game', () => { for (const o of [null, undefined, 5, 'x', [], { bankroll: -5 }, { bankroll: NaN, bets: 'x', history: 'y' }]) { const h = CrapsGame.restore(o); eq(h.bankroll, 1000); eq(h.totalOnTable(), 0); eq(h.point, null); } });
+test('Round-trip keeps fire / ATS tracking', () => { const g = G(); g.placeBet('fire', 5); g.placeBet('small', 5); shoot(g, [4, 4, 2, 3]); const h = CrapsGame.restore(JSON.parse(JSON.stringify(g.serialize()))); eq(h.firePoints.join(), '4'); eq(h.atsHits.sort((a, b) => a - b).join(), '2,3,4'); eq(h.bets.fire, 5); eq(h.bets.small, 5); eq(h.totalValue(), g.totalValue()); });
+
+test('restore() clamps nonsense numeric settings', () => {
+  const h = CrapsGame.restore({ bankroll: 100, settings: { tableMax: 0, propMin: 0, vigRate: 9, fieldTwoPays: 0, fieldTwelvePays: 7, tableMin: -4, odds: 1e9 } });
+  eq(h.settings.tableMin, 1, 'tableMin'); ok(h.settings.tableMax >= h.settings.tableMin, 'tableMax >= tableMin'); eq(h.settings.propMin, 1, 'propMin');
+  eq(h.settings.vigRate, 0.1, 'vig'); eq(h.settings.fieldTwoPays, 2, 'field 2'); eq(h.settings.fieldTwelvePays, 3, 'field 12'); eq(h.settings.odds, 100, 'odds');
+  eq(h.placeBet('pass', 1).ok, true, 'a bet is still possible');
+});
+test('restore() with vigRate 9: buy still pays (vig capped at 10%)', () => { const h = CrapsGame.restore({ bankroll: 1000, point: 6, settings: { vigRate: 9 } }); h.placeBet('buy4', 20); eq(ev(R(h, 4), 'buy4').win, 38); });
+test('sanitizeSettings: table max below min raised; odds 0 / NaN rejected; booleans typed', () => {
+  const s = sanitizeSettings({ tableMin: 25, tableMax: 10, odds: 0, putBets: 'no', vigRate: -1 }); eq(s.tableMax, 25); eq(s.odds, '345'); eq(s.putBets, true); eq(s.vigRate, 0);
+  eq(sanitizeSettings({ odds: NaN }).odds, '345'); eq(sanitizeSettings({ odds: 2.4 }).odds, 2); eq(sanitizeSettings(null).tableMin, 5);
+});
+
+// ============================================================
+section('Odds allowance (round up to a payable unit)');
+test('$15 flat on 5 at 1x may take $16 odds (pays $24)', () => { const g = G(1000, { odds: 1 }); g.placeBet('pass', 15); R(g, 5); eq(g.maxFor('passOdds'), 16); eq(g.placeBet('passOdds', 16).ok, true); eq(g.placeBet('passOdds', 1).ok, false); eq(ev(R(g, 5), 'passOdds').win, 24); });
+test('$12 flat on 6/8 at 1x may take $15 odds (pays $18); $25 flat takes $25', () => { for (const n of [6, 8]) { const g = G(1000, { odds: 1 }); g.placeBet('pass', 12); R(g, n); eq(g.maxFor('passOdds'), 15, 'n' + n); eq(g.placeBet('passOdds', 15).ok, true); eq(ev(R(g, n), 'passOdds').win, 18); const h = G(1000, { odds: 1 }); h.placeBet('pass', 25); R(h, n); eq(h.maxFor('passOdds'), 25); } });
+test('$15 at 2x on 6 allows exactly $30; on 4 no rounding needed', () => { const g = G(1000, { odds: 2 }); g.placeBet('pass', 15); R(g, 6); eq(g.maxFor('passOdds'), 30); const g2 = G(1000, { odds: 2 }); g2.placeBet('pass', 15); R(g2, 4); eq(g2.maxFor('passOdds'), 30); });
+test('$7 flat at 2x on 6 rounds $14 up to $15', () => { const g = G(1000, { odds: 2 }); g.placeBet('pass', 7); R(g, 6); eq(g.maxFor('passOdds'), 15); });
+test('Come odds use the same allowance', () => { const g = G(1000, { odds: 1 }); g.placeBet('pass', 10); R(g, 4); g.placeBet('come', 15); R(g, 9); eq(g.maxFor('comeOdds9'), 16); eq(g.placeBet('comeOdds9', 16).ok, true); });
+test('Lay odds allowance: $15 DP on 5 at 1x may lay $24 (win $16)', () => { const g = G(1000, { odds: 1 }); g.placeBet('dontPass', 15); R(g, 5); eq(g.maxFor('dontPassOdds'), 24); g.placeBet('dontPassOdds', 24); eq(ev(R(g, 7), 'dontPassOdds').win, 16); });
+test('Lay odds allowance: $27 DC on 8 at 1x may lay $36 (win $30)', () => { const g = G(1000, { odds: 1 }); g.placeBet('pass', 10); R(g, 4); g.placeBet('dontCome', 27); R(g, 8); eq(g.maxFor('dontComeOdds8'), 36); eq(g.placeBet('dontComeOdds8', 36).ok, true); eq(g.placeBet('dontComeOdds8', 1).ok, false); });
+test('3-4-5x limits unchanged by the allowance', () => { for (const [n, flat, max, lay] of [[4, 10, 30, 60], [5, 10, 40, 60], [6, 10, 50, 60], [5, 15, 60, 90], [6, 15, 75, 90]]) { const g = G(5000); g.placeBet('pass', flat); g.placeBet('dontPass', flat); R(g, n); eq(g.maxFor('passOdds'), max, 'take ' + n + '/' + flat); eq(g.maxFor('dontPassOdds'), lay, 'lay ' + n + '/' + flat); } });
+
+// ============================================================
+section('Chip stake (dealer booking of chips)');
+test('$1 chips accumulate on C & E until $2, then book $2', () => { const g = G(); let s = g.chipStake('ce', 1); eq(s.add, 0); eq(s.pending, 1); eq(s.short, 1); s = g.chipStake('ce', 1, s.pending); eq(s.add, 2); eq(s.pending, 0); eq(g.placeBet('ce', s.add).ok, true); });
+test('$5 chip on C & E books $4 with $1 change', () => { const g = G(); const s = g.chipStake('ce', 5); eq(s.add, 4); eq(s.change, 1); eq(s.pending, 0); eq(g.placeBet('ce', 4).ok, true); });
+test('$5 / $25 chips on Horn book $4 / $24', () => { const g = G(); eq(g.chipStake('horn', 5).add, 4); eq(g.chipStake('horn', 5).change, 1); eq(g.chipStake('horn', 25).add, 24); eq(g.chipStake('horn', 25).change, 1); });
+test('$1 chips on Horn: three pending, fourth books $4; fifth stays pending', () => { const g = G(); let p = 0; for (let i = 0; i < 3; i++) { const s = g.chipStake('horn', 1, p); eq(s.add, 0); p = s.pending; } eq(p, 3); const s = g.chipStake('horn', 1, p); eq(s.add, 4); g.placeBet('horn', 4); const s5 = g.chipStake('horn', 1); eq(s5.add, 0); eq(s5.pending, 1); });
+test('$1 chips on a $5-minimum Pass Line accumulate to $5', () => { const g = G(); let p = 0; for (let i = 0; i < 4; i++) { const s = g.chipStake('pass', 1, p); eq(s.add, 0); p = s.pending; } eq(p, 4); const s = g.chipStake('pass', 1, p); eq(s.add, 5); eq(g.placeBet('pass', 5).ok, true); eq(g.chipStake('pass', 1).add, 1); });
+test('World / Horn High book in $5 units', () => { const g = G(); eq(g.chipStake('world', 25).add, 25); eq(g.chipStake('hornHigh12', 1).pending, 1); eq(g.chipStake('hornHigh12', 100).add, 100); });
+
+// ============================================================
+section('reset() and Put warnings');
+test('reset() clears bets, point, working overrides, fire/ATS and stats', () => {
+  const g = G(); g.placeBet('fire', 5); g.placeBet('pass', 10); R(g, 6); g.placeBet('place8', 12); g.toggleWorking('place8'); R(g, 5);
+  let fired = 0; g.on('reset', () => fired++); g.reset(1000);
+  eq(g.totalOnTable(), 0); eq(g.point, null); eq(JSON.stringify(g.working), '{}'); eq(g.firePoints.length, 0); eq(g.atsHits.length, 0); eq(g.history.length, 0); eq(g.stats.currentRoll, 0); eq(g.stats.rolls, 0); eq(g.bankroll, 1000); eq(fired, 1);
+  g.placeBet('pass', 10); R(g, 6); g.placeBet('place8', 12); eq(g.isWorking('place8'), true, 'new place 8 is ON');
+});
+test('After reset a Fire Bet is accepted again; settings kept', () => { const g = G(1000, { odds: 2 }); g.placeBet('pass', 10); R(g, 5); g.reset(); eq(g.placeBet('fire', 5).ok, true); eq(g.settings.odds, 2); });
+test('Put bet info carries a clear warning', () => { const g = G(); g.placeBet('dontPass', 10); R(g, 4); const i = g.betInfo('pass'); eq(i.put, true); eq(i.warn, PUT_WARN); ok(/odds/.test(i.warn)); const g2 = G(); eq(g2.betInfo('pass').warn, undefined); });
+test('Buy / lay commission labels state the rounding policy', () => { ok(/commission on the bet, rounded down, \$1 min, paid on win/.test(betInfo('buy4').pays), betInfo('buy4').pays); ok(/5% of the win/.test(betInfo('lay4').pays), betInfo('lay4').pays); ok(/rounded up/.test(G(1000, { vigRounding: 'ceil' }).betInfo('buy4').pays)); ok(/nearest/.test(G(1000, { vigRounding: 'nearest' }).betInfo('lay6').pays)); });
+test('Put 6 on a number box: warned, paid 1:1, odds allowed, contract bet', () => {
+  const g = G(); g.placeBet('pass', 10); R(g, 5); const i = g.betInfo('come6'); eq(i.put, true); eq(i.name, 'Put 6'); eq(i.warn, PUT_WARN);
+  eq(g.placeBet('come6', 10).ok, true); eq(g.betInfo('come6').put, true, 'raising a booked Put is still a Put'); eq(g.betInfo('come6').name, 'Come 6'); eq(g.canRemove('come6').ok, false, 'contract');
+  eq(g.placeBet('comeOdds6', 50).ok, true); const r = R(g, 6); eq(ev(r, 'come6').win, 10); eq(ev(r, 'comeOdds6').win, 60);
+  const h = G(1000, { putBets: false }); h.placeBet('pass', 10); R(h, 5); eq(h.placeBet('come6', 10).ok, false, 'no-put table'); eq(G().placeBet('come6', 10).ok, false, 'no put on come-out');
+});
+
+section('Odds chips booked in payable units (dealer rounding)');
+const pt = (n, flat = 10, bank = 1000, s) => { const g = G(bank, s); g.placeBet('pass', flat); R(g, n); return g; };
+test('$25 chip behind a 5 books $24 + $1 change (tie: down, pays $36, nothing pulled from the rack)', () => { const g = pt(5); const s = g.oddsStake('passOdds', 25); eq(s.add, 24); eq(s.rounded, 'down'); eq(s.extra, 0); eq(s.change, 1); eq(g.placeBet('passOdds', s.add).ok, true); eq(g.winFor('passOdds'), 36); eq(g.bankroll, 1000 - 10 - 24); });
+test('$25 chip behind a 9 rounds DOWN to $24 when only $25 is left in the rack', () => { const g = pt(9, 10, 35); eq(g.bankroll, 25); const s = g.oddsStake('passOdds', 25); eq(s.add, 24); eq(s.rounded, 'down'); eq(s.change, 1); });
+test('Round up is refused past the odds limit: $5 flat on 5 (4x = $20) + $25 chip -> $20 capped', () => { const g = pt(5, 5); eq(g.maxFor('passOdds'), 20); const s = g.oddsStake('passOdds', 25); eq(s.add, 20); eq(s.rounded, 'capped'); eq(s.change, 5); });
+test('$1 chips behind a 6 stay pending until $5, then book $5', () => { const g = pt(6); let p = 0; for (let i = 0; i < 4; i++) { const s = g.oddsStake('passOdds', 1, p); eq(s.add, 0); p = s.pending; } eq(p, 4); const s = g.oddsStake('passOdds', 1, p); eq(s.add, 5); eq(s.pending, 0); eq(g.placeBet('passOdds', 5).ok, true); eq(g.winFor('passOdds'), 6); });
+test('$1 chip on odds behind a 6 never books an unpayable $1', () => { const g = pt(8); const s = g.oddsStake('passOdds', 1); eq(s.add, 0); eq(s.pending, 1); eq(s.short, 4); });
+test('$5 chip behind a 4 books $5 as is (pays $10)', () => { const g = pt(4); const s = g.oddsStake('passOdds', 5); eq(s.add, 5); eq(s.rounded, null); });
+test('$25 chip on 6/8 odds books $25 (clean, pays $30)', () => { const g = pt(6); const s = g.oddsStake('passOdds', 25); eq(s.add, 25); eq(s.rounded, null); });
+test('$5 chip on 6 odds on top of $25 is clean ($30 pays $36)', () => { const g = pt(6, 10); g.placeBet('passOdds', 25); const s = g.oddsStake('passOdds', 5); eq(s.add, 5); g.placeBet('passOdds', 5); eq(g.winFor('passOdds'), 36); });
+test('Lay odds against 4: $25 chip -> $24 (tie goes down, wins $12, $1 change)', () => { const g = G(); g.placeBet('dontPass', 10); R(g, 4); eq(g.unitFor('dontPassOdds'), 2); const s = g.oddsStake('dontPassOdds', 25); eq(s.add, 24); eq(s.change, 1); g.placeBet('dontPassOdds', 24); eq(g.winFor('dontPassOdds'), 12); });
+test('Lay odds against 6: $25 chip -> $24 like a Lay 6 box ($6 units, wins $20, $1 change)', () => { const g = G(); g.placeBet('dontPass', 10); R(g, 6); eq(g.unitFor('dontPassOdds'), 6); const s = g.oddsStake('dontPassOdds', 25); eq(s.add, 24); eq(s.extra, 0); eq(s.change, 1); eq(s.rounded, 'down'); g.placeBet('dontPassOdds', 24); eq(g.winFor('dontPassOdds'), 20); });
+test('Come odds 9: $5 chip -> $4 + $1 change (tie down); $10 lay against 6 -> $12 (+$2, nearer)', () => { const g = pt(4); g.placeBet('come', 10); R(g, 9); eq(g.bets.come9, 10); const s = g.oddsStake('comeOdds9', 5); eq(s.add, 4); eq(s.change, 1); const d = G(); d.placeBet('dontPass', 10); R(d, 6); const l = d.oddsStake('dontPassOdds', 10); eq(l.add, 12); eq(l.extra, 2); eq(l.rounded, 'up'); });
+test('Odds at the limit report full; no flat bet reports full', () => { const g = pt(6, 10); g.placeBet('passOdds', 50); const s = g.oddsStake('passOdds', 5); eq(s.full, true); eq(s.add, 0); eq(G().oddsStake('passOdds', 5).full, true); });
+test('Every odds stake is payable without breakage (all points, chips $1-$100)', () => {
+  let n = 0;
+  for (const P of POINTS) for (const chip of [1, 5, 25, 100]) for (const id of ['passOdds', 'dontPassOdds']) {
+    const g = G(); g.placeBet(id === 'passOdds' ? 'pass' : 'dontPass', 25); R(g, P);
+    const s = g.oddsStake(id, chip); if (!s.add) continue;
+    asserts++; if (s.add % g.unitFor(id)) throw new Error(`${id} on ${P} chip ${chip} -> ${s.add}`);
+    ok(g.placeBet(id, s.add).ok, `${id} ${P} ${chip}`); n++;
+  }
+  ok(n > 30, 'cases ' + n);
+});
+
+section('Max odds (clean units, bankroll-limited)');
+test('maxOddsAdd = full 3-4-5x when affordable', () => { eq(pt(4).maxOddsAdd('passOdds'), 30); eq(pt(5).maxOddsAdd('passOdds'), 40); eq(pt(6).maxOddsAdd('passOdds'), 50); });
+test('maxOddsAdd is limited by the bankroll, in payable units', () => { const g = pt(6, 10, 47); eq(g.bankroll, 37); eq(g.maxOddsAdd('passOdds'), 35); const h = pt(5, 10, 23); eq(h.maxOddsAdd('passOdds'), 12); });
+test('maxOddsAdd tops up an existing odds bet; 0 at the limit / without a flat', () => { const g = pt(8); g.placeBet('passOdds', 20); eq(g.maxOddsAdd('passOdds'), 30); g.placeBet('passOdds', 30); eq(g.maxOddsAdd('passOdds'), 0); eq(G().maxOddsAdd('passOdds'), 0); eq(G().maxOddsAdd('comeOdds6'), 0); });
+test('maxOddsAdd lay: $10 don\'t pass vs 6 lays $60', () => { const g = G(); g.placeBet('dontPass', 10); R(g, 6); eq(g.maxOddsAdd('dontPassOdds'), 60); eq(g.placeBet('dontPassOdds', 60).ok, true); });
+
+section('Vig rounding policy');
+test('vig() floor / nearest / ceil', () => { eq(vig(39), 1); eq(vig(39, 0.05, 'nearest'), 2); eq(vig(39, 0.05, 'ceil'), 2); eq(vig(30, 0.05, 'floor'), 1); eq(vig(30, 0.05, 'nearest'), 2); eq(vig(21, 0.05, 'ceil'), 2); eq(vig(20, 0.05, 'ceil'), 1); eq(vig(100, 0.05, 'ceil'), 5); eq(vig(10, 0.05, 'nearest'), 1); });
+test('0% commission table charges nothing', () => { eq(vig(40, 0), 0); const g = pt(6, 10, 1000, { vigRate: 0 }); g.placeBet('buy4', 20); eq(ev(R(g, 4), 'buy4').win, 40); });
+test('$39 buy 10: floor nets $77, ceil nets $76', () => { const a = pt(6); a.placeBet('buy10', 39); eq(ev(R(a, 10), 'buy10').win, 77); const b = pt(6, 10, 1000, { vigRounding: 'ceil' }); b.placeBet('buy10', 39); eq(ev(R(b, 10), 'buy10').win, 76); });
+test('Lay 4 $78 (win $39): floor vig $1, nearest $2', () => { const a = G(); a.placeBet('lay4', 78); eq(ev(R(a, 7), 'lay4').win, 38); const b = G(1000, { vigRounding: 'nearest' }); b.placeBet('lay4', 78); eq(ev(R(b, 7), 'lay4').win, 37); eq(b.winFor('lay4'), 37); });
+test('vigRounding is sanitized and survives serialize/restore', () => { eq(sanitizeSettings({ vigRounding: 'up' }).vigRounding, 'floor'); eq(sanitizeSettings({ vigRounding: 'ceil' }).vigRounding, 'ceil'); const g = G(1000, { vigRounding: 'nearest' }); eq(CrapsGame.restore(g.serialize()).settings.vigRounding, 'nearest'); });
+
+// ============================================================
+section('House edge (exact, from engine payouts)');
+const EDGES = [
+  ['pass', 30, -1.414, 0.01], ['dontPass', 30, -1.364, 0.01], ['field', 30, -2.778, 0.01],
+  ['place6', 30, -1.515, 0.01], ['place5', 30, -4.0, 0.01], ['place4', 30, -6.667, 0.01],
+  ['big8', 30, -9.091, 0.01], ['hard8', 30, -9.091, 0.01], ['hard4', 30, -11.111, 0.01],
+  ['any7', 30, -16.667, 0.01], ['anyCraps', 30, -11.111, 0.01], ['eleven', 30, -11.111, 0.01],
+  ['twelve', 30, -13.889, 0.01], ['horn', 40, -12.5, 0.01], ['ce', 30, -11.111, 0.01],
+  ['buy4', 20, -1.667, 0.01], ['lay4', 40, -1.667, 0.01],
+  ['world', 50, -13.333, 0.01], ['hop15', 30, -11.111, 0.01], ['hop33', 30, -13.889, 0.01],
+  ['hornHigh12', 50, -12.778, 0.01], ['hornHigh3', 50, -12.222, 0.01],
+];
+const edgeBox = document.getElementById('edges');
+for (const [id, amt, edge, tol] of EDGES) test(`${betInfo(id).name}: house edge ${(-edge).toFixed(3)}%`, () => { const e = expectedValue(id, amt) * 100; near(e, edge, tol, id); edgeBox.insertAdjacentHTML('beforeend', `<span>${betInfo(id).name} <b>${(-e).toFixed(2)}%</b></span>`); });
+test('Free odds have zero house edge (all numbers)', () => { for (const n of POINTS) { const p = WAYS[n] / (WAYS[n] + 6); const [a, b] = TRUE_ODDS[n]; near(p * (a / b) - (1 - p), 0, 1e-12, 'take ' + n); const [c, d] = LAY_ODDS[n]; near((1 - p) * (c / d) - p, 0, 1e-12, 'lay ' + n); } });
+test('Put bet edge from engine: 33.3% on 4/10, 20% on 5/9, 9.09% on 6/8', () => {
+  for (const [n, e] of [[4, 33.333], [10, 33.333], [5, 20], [9, 20], [6, 9.091], [8, 9.091]]) {
+    let s = 0, w = 0;
+    for (let a = 1; a <= 6; a++) for (let c = 1; c <= 6; c++) { const g = G(1e6); g.point = n; g.placeBet('pass', 30); const x = ev(g.resolveRoll(a, c), 'pass'); if (x) { s += x.type === 'win' ? x.win : -x.stake; w++; } }
+    near(-s / w / 30 * 100, e, 0.01, 'put ' + n);
+  }
+});
+test('Put + max odds on 6 drops the edge to 1.52%', () => { let s = 0, w = 0; for (let a = 1; a <= 6; a++) for (let c = 1; c <= 6; c++) { const g = G(1e6); g.point = 6; g.placeBet('pass', 10); g.placeBet('passOdds', 50); const r = g.resolveRoll(a, c); if (ev(r, 'pass')) { s += r.net; w++; } } near(-s / w / 60 * 100, 1.515, 0.01, 'put+odds'); });
+
+// ============================================================
+section('Round 5: Put raises, dealer booking, scoped ON/OFF');
+test('More money on a Pass Line after the point is flagged as a Put (name stays Pass Line)', () => {
+  const g = pt(6); const i = g.betInfo('pass'); eq(i.put, true); eq(i.raise, true); eq(i.warn, PUT_RAISE_WARN); eq(i.name, 'Pass Line');
+  eq(G().betInfo('pass').put, undefined, 'no Put flag on the come-out');
+  const r = R(g, 6); eq(ev(r, 'pass').name, 'Pass Line', 'event name unchanged');
+});
+test('Raise on a traveled come bet is flagged as a Put', () => { const g = pt(4); g.placeBet('come', 10); R(g, 9); const i = g.betInfo('come9'); eq(i.put, true); eq(i.raise, true); eq(i.warn, PUT_RAISE_WARN); });
+test('No Put flag on a no-put table', () => { const g = pt(6, 10, 1000, { putBets: false }); eq(g.betInfo('pass').put, undefined); });
+test('Put bets are tracked and cleared when the puck moves', () => {
+  const g = G(); R(g, 6); g.placeBet('pass', 10); eq(g.puts.pass, 10); eq(g.putAmount('pass'), 10);
+  const h = pt(8); eq(h.puts.pass, undefined, 'come-out pass is not a Put'); h.placeBet('pass', 5); eq(h.puts.pass, 5, 'only the $5 raise is Put money'); eq(h.putAmount('pass'), 5);
+  R(h, 8); eq(h.puts.pass, undefined, 'cleared at point made'); eq(h.bets.pass, 15);
+});
+test("putOdds 'flat' caps odds behind a Put at 1x the flat; full table gives 5x", () => {
+  const g = G(1000, { putOdds: 'flat' }); R(g, 6); g.placeBet('pass', 10); eq(g.maxFor('passOdds'), 10); eq(g.placeBet('passOdds', 15).ok, false); eq(g.placeBet('passOdds', 10).ok, true);
+  const f = G(); R(f, 6); f.placeBet('pass', 10); eq(f.maxFor('passOdds'), 50);
+  const n = pt(6, 10, 1000, { putOdds: 'flat' }); eq(n.maxFor('passOdds'), 50, 'a come-out pass keeps full odds');
+});
+test("putOdds 'flat' on a Put 5 (come5) caps odds at $10 (2-unit allowance)", () => { const g = pt(8, 10, 1000, { putOdds: 'flat' }); g.placeBet('come5', 10); eq(g.maxFor('comeOdds5'), 10); g.placeBet('come', 10); R(g, 9); eq(g.maxFor('comeOdds9'), 40, 'traveled come keeps full odds'); });
+test('putOdds is sanitized and puts survive serialize/restore', () => {
+  eq(sanitizeSettings({ putOdds: 'half' }).putOdds, 'full'); eq(sanitizeSettings({ putOdds: 'flat' }).putOdds, 'flat');
+  const g = G(1000, { putOdds: 'flat' }); R(g, 5); g.placeBet('pass', 10); const h = CrapsGame.restore(g.serialize()); eq(h.puts.pass, 10); eq(h.maxFor('passOdds'), 10);
+  const s = g.serialize(); s.puts.pass = true; eq(CrapsGame.restore(s).puts.pass, 10, 'legacy true = the whole bet');
+});
+test('Rebet re-books $16 of odds (old point 5) behind a new 6 as $15', () => {
+  const g = pt(6); const p = g.rebetPlan({ pass: 10, passOdds: 16 });
+  eq(p.plan.length, 1); eq(p.plan[0][0], 'passOdds'); eq(p.plan[0][1], 15); eq(p.rounded[0].to, 15);
+  g.placeBet('passOdds', 15); eq(g.winFor('passOdds'), 18);
+});
+test('Rebet: odds on a 4 stay as is; over the limit they are cut to the max', () => { const g = pt(4); eq(g.rebetPlan({ passOdds: 16 }).plan[0][1], 16); eq(pt(4).rebetPlan({ passOdds: 50 }).plan[0][1], 30); });
+test('Rebet: $5 on Place 6 goes back up as $6 (the only +$1: the minimum case); Lay 6 $25 as $24; Buy 5 $25 as $24', () => {
+  const g = G(); const p = g.rebetPlan({ place6: 5, lay6: 25, buy5: 25 }); const m = Object.fromEntries(p.plan.map(([id, a]) => [id, a]));
+  eq(m.place6, 6); eq(m.lay6, 24); eq(m.buy5, 24);
+});
+test('Rebet skips line bets while the point is on and odds without a flat', () => {
+  const g = G(); R(g, 6); const p = g.rebetPlan({ pass: 10, passOdds: 20, field: 5 });
+  eq(p.plan.map((x) => x[0]).join(), 'field'); ok(p.skipped.some((x) => x.id === 'pass')); ok(p.skipped.some((x) => x.id === 'passOdds'));
+});
+test('Rebet plan respects the bankroll less money held pending elsewhere', () => { const g = pt(6, 10, 40); eq(g.bankroll, 30); const p = g.rebetPlan({ passOdds: 25 }, 10); eq(p.plan[0][1], 20); eq(g.bankroll, 30, 'plan places nothing'); });
+test('$5 chip on Place 6 books $6 ($1 from the rack) and pays $7', () => { const g = G(); const s = g.chipStake('place6', 5); eq(s.add, 6); eq(s.extra, 1); eq(s.rounded, 'up'); g.placeBet('place6', 6); eq(g.winFor('place6'), 7); });
+test('$25 chip on Buy 5 books $24 (tie down, nets $35); on Lay 6 books DOWN to $24 (nets $19, $1 change)', () => {
+  const g = G(); const b = g.chipStake('buy5', 25); eq(b.add, 24); eq(b.change, 1); eq(b.extra, 0); eq(g.winFor('buy5', 24), 35);
+  const l = g.chipStake('lay6', 25); eq(l.add, 24); eq(l.change, 1); eq(l.extra, 0); eq(l.rounded, 'down'); eq(g.winFor('lay6', 24), 19);
+});
+
+// ============================================================
+section('Round 6: rebet safety, Put portions, lay booking');
+test('Rebet never books a traveled come number as a Put (come6 won and came down)', () => {
+  const g = pt(4); g.placeBet('come', 10); R(g, 6); eq(g.bets.come6, 10); eq(g.placeBet('comeOdds6', 25).ok, true);
+  const snap = { ...g.bets }; R(g, 6); eq(g.bets.come6, undefined, 'paid and down');
+  const p = g.rebetPlan(snap); ok(!p.plan.some(([id]) => id === 'come6' || id === 'comeOdds6'), JSON.stringify(p.plan));
+  eq(p.skipped.find((x) => x.id === 'come6').reason, 'come bets travel; would be a Put'); ok(p.skipped.some((x) => x.id === 'comeOdds6'));
+  eq(g.puts.come6, undefined, 'plan placed nothing');
+});
+test("Rebet keeps a come number already up, never tops it up; same for don't come", () => {
+  const g = pt(5); g.placeBet('come', 10); R(g, 8); const p = g.rebetPlan({ come8: 20, comeOdds8: 25 });
+  ok(p.skipped.some((x) => x.id === 'come8'), 'no raise'); eq(p.plan.map((x) => x[0]).join(), 'comeOdds8');
+  eq(pt(5).rebetPlan({ dontCome9: 10 }).skipped[0].reason, 'come bets travel; would be a Put');
+});
+test("putOdds 'flat': $10 contract on the 6 + $5 Put = $55 max odds (5x$10 + 1x$5)", () => {
+  const g = pt(6, 10, 1000, { putOdds: 'flat' }); g.placeBet('pass', 5); eq(g.putAmount('pass'), 5); eq(g.maxFor('passOdds'), 55);
+  eq(g.placeBet('passOdds', 60).ok, false); eq(g.placeBet('passOdds', 55).ok, true);
+});
+test("putOdds 'flat' on a 5: $10 contract + $10 Put = $50 (4x$10 + 1x$10)", () => { const g = pt(5, 10, 1000, { putOdds: 'flat' }); g.placeBet('pass', 10); eq(g.maxFor('passOdds'), 50); });
+test('Put raise on a traveled come bet: accepted, tracked as Put money, contract', () => {
+  const g = pt(4, 10, 1000, { putOdds: 'flat' }); g.placeBet('come', 10); R(g, 9); eq(g.puts.come9, undefined);
+  eq(g.placeBet('come9', 10).ok, true); eq(g.bets.come9, 20); eq(g.putAmount('come9'), 10); eq(g.maxFor('comeOdds9'), 50, '4x$10 + 1x$10');
+  eq(g.canRemove('come9').ok, false); const r = R(g, 9); eq(ev(r, 'come9').win, 20);
+});
+test('Put money is cleared when the bet resolves; Pass Put cleared when the point is made', () => {
+  const g = pt(8); g.placeBet('pass', 5); g.placeBet('come6', 10); R(g, 6); eq(g.puts.come6, undefined); eq(g.puts.pass, 5); R(g, 8); eq(g.puts.pass, undefined);
+});
+test('$25 chip on Lay 5 books $24 (wins $16, nets $15 after $1 vig), $1 change', () => { const g = G(); const s = g.chipStake('lay5', 25); eq(s.add, 24); eq(s.change, 1); eq(s.rounded, 'down'); eq(g.winFor('lay5', 24), 15); });
+test('Lay booking: $25 on Lay 4 is $24, clean lays book as is, a $5 chip on Lay 5 waits (min $9 = win $6)', () => {
+  const g = G(); eq(g.chipStake('lay4', 25).add, 24); eq(g.chipStake('lay4', 30).add, 30); eq(g.chipStake('lay6', 30).add, 30);
+  const s = g.chipStake('lay5', 5); eq(s.add, 0, '$5 on Lay 5: below the lay minimum, stays pending'); eq(s.pending, 5); eq(s.short, 4);
+});
+test('Box booking pulls at most roundUpMax ($2), and only when nearer, except the minimum case', () => { const g = G(); for (const k of ['place', 'buy', 'lay']) for (const n of [4, 5, 6, 8, 9, 10]) for (const c of [5, 10, 25, 100]) { const id = k + n, s = g.chipStake(id, c), u = g.unitFor(id), down = Math.floor(c / u) * u, minCase = down < g.minFor(id); ok(s.add % u === 0, `${id} $${c} -> ${s.add}`); ok(minCase || s.extra <= 2, `${id} $${c}: extra ${s.extra}`); ok(minCase || !s.extra || s.extra < c - down, `${id} $${c}: not nearer`); } });
+test('Clean box chips book as is: Place 5 $5, Place 4 $25, Place 8 $12, Buy 4 $25', () => { const g = G(); for (const [id, c] of [['place5', 5], ['place4', 25], ['place8', 12], ['buy4', 25]]) { const s = g.chipStake(id, c); eq(s.add, c, id); eq(s.rounded, null, id); } });
+test('$25 chip on Place 8 books $24 + $1 change (pays $28) — never $5 extra from the rack', () => { const g = G(); const s = g.chipStake('place8', 25); eq(s.add, 24); eq(s.change, 1); eq(s.extra, 0); eq(s.rounded, 'down'); g.placeBet('place8', 24); eq(g.winFor('place8'), 28); });
+test('$1 chips on Place 6 stay pending until $6', () => { const g = G(); let p = 0; for (let i = 0; i < 5; i++) { const s = g.chipStake('place6', 1, p); eq(s.add, 0); p = s.pending; } eq(p, 5); const s = g.chipStake('place6', 1, p); eq(s.add, 6); eq(s.pending, 0); });
+test('Box rounding falls back: rack $25 -> Place 6 $24 with $1 change; rack $5 -> $5 as is', () => {
+  const g = G(25); const s = g.chipStake('place6', 25); eq(s.add, 24); eq(s.change, 1); eq(s.rounded, 'down');
+  const h = G(5); const t = h.chipStake('place6', 5); eq(t.add, 5); eq(t.rounded, 'raw');
+});
+test('Pending on other bets is held back: $5 rack cannot stack $4 C&E + $4 Horn', () => {
+  const g = G(5); const ce = g.chipStake('ce', 4, 0, 0); eq(ce.broke, false); const horn = g.chipStake('horn', 4, 0, 4); eq(horn.broke, true, 'only $1 left');
+  const pend = g.chipStake('horn', 1, 0, 4); eq(pend.broke, false); const pend2 = g.chipStake('horn', 1, 1, 4); eq(pend2.broke, true);
+});
+test('Odds pending is held back too: $5 rack, $4 held elsewhere, cannot start odds behind a 6', () => {
+  const g = pt(6, 10, 15); eq(g.bankroll, 5); const s = g.oddsStake('passOdds', 1, 0, 4); eq(s.full, true); eq(s.add, 0);
+  const t = g.oddsStake('passOdds', 1, 0, 0); eq(t.pending, 1); eq(t.broke, false); eq(g.maxOddsAdd('passOdds', 4), 0); eq(g.maxOddsAdd('passOdds'), 5);
+});
+test('Come-out ON call for a Hard 8 lasts one roll (4 then 4: OFF again next come-out)', () => {
+  const g = G(); g.placeBet('pass', 10); g.placeBet('hard8', 5); g.setWorking('hard8', true); eq(g.isWorking('hard8'), true);
+  R(g, 4); eq(g.isWorking('hard8'), true, 'works during the point anyway'); eq(g.working.hard8, undefined, 'call used up');
+  R(g, 4); eq(g.point, null); eq(g.isWorking('hard8'), false, 'next come-out: back to OFF');
+});
+test('Come-out ON call on Place 6 ends after a natural', () => { const g = G(); g.placeBet('place6', 12); g.setWorking('place6', true); R(g, 11); eq(g.isWorking('place6'), false); eq(g.bets.place6, 12); });
+test('OFF call during the point lasts until the puck moves, with a working event', () => {
+  const g = pt(5); g.placeBet('place8', 12); g.setWorking('place8', false); const got = []; g.on('working', (p) => got.push(p));
+  R(g, 9); eq(g.isWorking('place8'), false, 'still OFF after a non-decision'); R(g, 8); eq(g.bets.place8, 12, 'OFF: not paid');
+  R(g, 5); eq(g.working.place8, undefined); eq(got.length, 1); eq(got[0].id, 'place8'); eq(got[0].reason, 'scope');
+});
+test('Odds in payable units enforced by placeBet (oddsUnits)', () => {
+  const g = pt(5); const r = g.placeBet('passOdds', 7); eq(r.ok, false); ok(/\$2 units/.test(r.reason), r.reason); eq(g.placeBet('passOdds', 8).ok, true);
+  eq(pt(4).placeBet('passOdds', 7).ok, true, '4 pays 2:1 — any dollar amount is clean'); eq(pt(6).placeBet('passOdds', 12).ok, false);
+  eq(pt(6, 10, 1000, { oddsUnits: false }).placeBet('passOdds', 12).ok, true, 'raw odds when the table allows');
+  const d = G(); d.placeBet('dontPass', 10); R(d, 6); eq(d.placeBet('dontPassOdds', 25).ok, false); eq(d.placeBet('dontPassOdds', 30).ok, true);
+});
+test('restore() keeps legacy odds that are not in units (no money lost)', () => { const g = pt(5, 10, 1000, { oddsUnits: false }); g.placeBet('passOdds', 7); const s = g.serialize(); s.settings.oddsUnits = true; const h = CrapsGame.restore(s); eq(h.bets.passOdds, 7); eq(h.totalValue(), 1000); });
+test('autoStrategy bets are always accepted by the stricter engine (300 rolls)', () => { const g = G(1e6); const rng = makeRng(5); for (let i = 0; i < 300; i++) { for (const [id, a] of autoStrategy(g, 10, i)) { const r = g.placeBet(id, a); ok(r.ok, `${id} ${a}: ${r.reason}`); } g.resolveRoll(rollDie(rng), rollDie(rng)); } });
+
+// ============================================================
+section('Round 7: one dealer rounding policy, Put-safe rebet, buy min, lay vig timing');
+test('Rebet never tops up a Pass Line that is up during the point (would be a silent Put raise)', () => {
+  const g = pt(6); eq(g.bets.pass, 10); const p = g.rebetPlan({ pass: 25, passOdds: 25, field: 5 });
+  ok(!p.plan.some(([id]) => id === 'pass'), JSON.stringify(p.plan)); ok(/Put/.test(p.skipped.find((x) => x.id === 'pass').reason));
+  eq(p.plan.map((x) => x[0]).join(), 'field,passOdds'); eq(g.bets.pass, 10, 'plan placed nothing');
+});
+test("Rebet never tops up a Don't Pass during the point; on the come-out a Pass top-up is fine", () => {
+  const d = G(); d.placeBet('dontPass', 10); R(d, 8); ok(d.rebetPlan({ dontPass: 25 }).skipped.some((x) => x.id === 'dontPass'));
+  const c = G(); c.placeBet('pass', 10); const p = c.rebetPlan({ pass: 25 }); eq(p.plan.length, 1); eq(p.plan[0][1], 15);
+});
+test('maxTakeOdds JSDoc examples hold: $25 at 1x on 6 = $25, $7 at 1x on 6 = $10, $15 at 1x on 5 = $16', () => { const g = G(); eq(g.maxTakeOdds(25, 6, 1), 25); eq(g.maxTakeOdds(7, 6, 1), 10); eq(g.maxTakeOdds(15, 5, 1), 16); eq(g.maxLayOdds(10, 6), 60); });
+test('maxOddsAdd never spends money held pending elsewhere ($30 rack, $3 on Horn pending -> $25 behind a 6)', () => { const g = pt(6, 10, 40); eq(g.maxOddsAdd('passOdds'), 30); eq(g.maxOddsAdd('passOdds', 3), 25); eq(g.maxOddsAdd('passOdds', 30), 0); });
+test('Nearest clean amount: Place 6 $10 -> $12 (+$2), Place 9 $7 -> $5, Place 5 $8 -> $10', () => {
+  const g = G(); const a = g.chipStake('place6', 10); eq(a.add, 12); eq(a.extra, 2); eq(a.rounded, 'up');
+  const b = g.chipStake('place9', 7); eq(b.add, 5); eq(b.change, 2); const c = g.chipStake('place5', 8); eq(c.add, 10); eq(c.extra, 2);
+});
+test('roundUpMax 0: never pulls extra except the $5 -> $6 minimum case', () => {
+  const g = G(1000, { roundUpMax: 0 }); const a = g.chipStake('place6', 10); eq(a.add, 6); eq(a.change, 4); eq(a.extra, 0);
+  const b = g.chipStake('place6', 5); eq(b.add, 6); eq(b.extra, 1, 'minimum case'); eq(g.chipStake('lay6', 10).add, 6);
+  const o = pt(6, 10, 1000, { roundUpMax: 0 }); o.placeBet('passOdds', 5); eq(o.oddsStake('passOdds', 4, 0).add, 0, '$4 chip < $5 unit stays pending');
+  eq(sanitizeSettings({ roundUpMax: 99 }).roundUpMax, 25); eq(sanitizeSettings({ roundUpMax: 'x' }).roundUpMax, 2); eq(sanitizeSettings({ roundUpMax: -3 }).roundUpMax, 0);
+});
+test('Same policy for box lays and lay odds ($25 vs 6 -> $24 both; $25 vs 4 -> $24 both)', () => {
+  const g = G(); g.placeBet('dontPass', 25); R(g, 6); eq(g.chipStake('lay6', 25).add, g.oddsStake('dontPassOdds', 25).add); eq(g.chipStake('lay6', 25).add, 24);
+  const h = G(); h.placeBet('dontPass', 25); R(h, 4); eq(h.chipStake('lay4', 25).add, h.oddsStake('dontPassOdds', 25).add); eq(h.chipStake('lay4', 25).add, 24);
+});
+test('Odds rounding still respects the cap: $10 lay vs 6 with $10 rack books $6', () => { const g = G(20); g.placeBet('dontPass', 10); R(g, 6); const s = g.oddsStake('dontPassOdds', 10); eq(s.add, 6); eq(s.change, 4); });
+test('buyMin: a $20 buy minimum on a $5 table (place minimum unchanged)', () => {
+  const g = G(1000, { buyMin: 20 }); eq(g.minFor('buy4'), 20); eq(g.minFor('place4'), 5); eq(g.placeBet('buy4', 15).ok, false); ok(/Minimum/.test(g.validate('buy4', 15).reason));
+  eq(g.placeBet('buy4', 20).ok, true); eq(g.winFor('buy4'), 39, '$1 vig on $20 = exactly 5%'); eq(G().minFor('buy10'), 5, 'default: table minimum');
+  eq(sanitizeSettings({ buyMin: 50, tableMax: 30 }).buyMin, 30); eq(sanitizeSettings({ buyMin: 'a' }).buyMin, 0);
+});
+test("layVig 'upfront': commission paid at booking, full lay stays up, paid again after a win", () => {
+  const g = G(1000, { layVig: 'upfront' }); const r = g.placeBet('lay4', 40); eq(r.ok, true); eq(r.vig, 1); eq(g.bankroll, 959); eq(g.vigPaid.lay4, 1);
+  eq(g.winFor('lay4'), 19); const w = ev(R(g, 7), 'lay4'); eq(w.win, 19); eq(g.bankroll, 978); eq(g.bets.lay4, 40); eq(g.vigPaid.lay4, 1, 'next decision prepaid');
+  const l = ev(R(g, 4), 'lay4'); eq(l.type, 'lose'); eq(g.bankroll, 978); eq(g.vigPaid.lay4, undefined); ok(/paid up front/.test(g.betInfo('lay4').pays));
+});
+test("layVig 'upfront': take-down refunds the vig; raises pay only the extra vig; bankroll must cover it", () => {
+  const g = G(1000, { layVig: 'upfront' }); g.placeBet('lay10', 40); const rm = g.removeBet('lay10'); eq(rm.removed[0].vig, 1); eq(g.bankroll, 1000);
+  g.placeBet('lay4', 40); g.placeBet('lay4', 40); eq(g.vigPaid.lay4, 2); eq(g.bankroll, 1000 - 82);
+  const s = G(40, { layVig: 'upfront' }); eq(s.placeBet('lay4', 40).ok, false, 'needs $41'); eq(s.placeBet('lay4', 38).ok, true); eq(s.bankroll, 1);
+  eq(G().placeBet('lay4', 40).vig, 0, 'on-win table charges nothing at booking'); eq(sanitizeSettings({ layVig: 'later' }).layVig, 'win');
+});
+test("layVig 'upfront' survives serialize/restore; a 'win' table refunds prepaid vig (no money lost)", () => {
+  const g = G(1000, { layVig: 'upfront' }); g.placeBet('lay6', 60); const s = g.serialize(); eq(CrapsGame.restore(s).vigPaid.lay6, 2);
+  const t = JSON.parse(JSON.stringify(s)); t.settings.layVig = 'win'; const h = CrapsGame.restore(t); eq(h.vigPaid.lay6, undefined); eq(h.bankroll, g.bankroll + 2);
+  const u = JSON.parse(JSON.stringify(s)); u.vigPaid.lay6 = 50; eq(CrapsGame.restore(u).vigPaid.lay6, 2, 'capped'); eq(CrapsGame.restore(u).bankroll, g.bankroll + 48);
+});
+test("Lay 4 edge: 1.67% with vig on the win, 2.5% with vig up front (engine, per decision)", () => {
+  for (const [mode, edge] of [['win', 1.667], ['upfront', 2.5]]) {
+    let s = 0, w = 0;
+    for (let a = 1; a <= 6; a++) for (let c = 1; c <= 6; c++) {
+      const g = G(1000, { layVig: mode }); g.placeBet('lay4', 40); const e = ev(g.resolveRoll(a, c), 'lay4'); if (!e) continue;
+      s += g.bankroll + g.totalOnTable() + (g.vigPaid.lay4 || 0) - 1000; w++;
+    }
+    near(-s / w / 40 * 100, edge, 0.01, mode);
+  }
+});
+
+// ============================================================
+section('Round 8: rebet = chip policy, up-front vig accounting, buy vig timing, lay minimum by the win, OFF events');
+const planAmt = (p, id) => { const x = p.plan.find(([i]) => i === id); return x ? x[1] : 0; };
+test('Rebet $24 of pass odds (old 5) behind a new 6 books $25 — the same as a $24 chip', () => {
+  const g = pt(6); const p = g.rebetPlan({ pass: 10, passOdds: 24 }); eq(planAmt(p, 'passOdds'), 25); eq(g.oddsStake('passOdds', 24).add, 25);
+  eq(p.rounded[0].to, 25); eq(p.rounded[0].from, 24);
+});
+test('Rebet $40 of lay odds (old 4) against a new 6 books $42 — the same as a $40 chip', () => {
+  const g = G(); g.placeBet('dontPass', 20); R(g, 6); const p = g.rebetPlan({ dontPass: 20, dontPassOdds: 40 });
+  eq(planAmt(p, 'dontPassOdds'), 42); eq(g.oddsStake('dontPassOdds', 40).add, 42);
+});
+test('Rebet a $10 Place 6 snapshot as $12 — the same as a $10 chip', () => { const g = G(); eq(planAmt(g.rebetPlan({ place6: 10 }), 'place6'), 12); eq(g.chipStake('place6', 10).add, 12); });
+test('Rebet and chip booking agree on every box bet and amount', () => {
+  const g = G(); let n = 0;
+  for (const k of ['place', 'buy', 'lay']) for (const x of POINTS) for (const c of [5, 6, 9, 10, 11, 13, 24, 25, 26, 40, 41, 99]) {
+    const id = k + x, s = g.chipStake(id, c); if (!(s.add > 0) || s.pending) continue;
+    eq(planAmt(g.rebetPlan({ [id]: c }), id), s.add, `${id} $${c}`); n++;
+  }
+  ok(n > 150, 'checked ' + n);
+});
+test('Rebet and chip booking agree on take and lay odds on every point', () => {
+  let n = 0;
+  for (const x of POINTS) {
+    const g = pt(x, 25), d = G(); d.placeBet('dontPass', 25); R(d, x);
+    for (const c of [3, 5, 7, 10, 12, 16, 24, 25, 40, 55]) {
+      for (const [h, id] of [[g, 'passOdds'], [d, 'dontPassOdds']]) {
+        const s = h.oddsStake(id, c); if (!(s.add > 0) || s.pending) continue;
+        eq(planAmt(h.rebetPlan({ [id]: c }), id), s.add, `${id} on ${x}: $${c}`); n++;
+      }
+    }
+  }
+  ok(n > 60, 'checked ' + n);
+});
+test("expectedValue counts up-front vig: Lay 4 $40+$1 = 2.44% of the $41 (2.5% per dollar laid); on the win 1.67%", () => {
+  const up = expectedValue('lay4', 40, { layVig: 'upfront' }) * 100; near(up, -100 / 41, 0.001, 'upfront'); near(up * 41 / 40, -2.5, 0.001, 'per dollar laid');
+  near(expectedValue('lay4', 40) * 100, -1.667, 0.01, 'win'); near(expectedValue('lay10', 40, { layVig: 'upfront' }) * 100, -2.439, 0.01, 'lay 10');
+});
+test("Buy 4 / Buy 10 edge: 4.76% with buyVig 'upfront', 1.67% with vig on the win", () => {
+  for (const id of ['buy4', 'buy10']) { near(expectedValue(id, 20, { buyVig: 'upfront' }) * 100, -4.762, 0.01, id + ' upfront'); near(expectedValue(id, 20) * 100, -1.667, 0.01, id + ' win'); }
+  near(expectedValue('buy6', 25, { buyVig: 'upfront' }) * 100, 100 * (5 / 11 * 29 - 6 / 11 * 26) / 26, 0.001, 'buy6 $25+$1: wins $29, loses $26');
+});
+test("Losing up-front lay: lose event carries vig $1 and lost $41; stats, net and totalLost all say $41", () => {
+  const g = G(1000, { layVig: 'upfront' }); g.placeBet('lay4', 40); eq(g.bankroll, 959); eq(g.totalValue(), 1000, 'prepaid vig counts as value');
+  const r = R(g, 4), e = ev(r, 'lay4'); eq(e.type, 'lose'); eq(e.stake, 40); eq(e.vig, 1); eq(e.lost, 41);
+  eq(r.totalLost, 41); eq(r.net, -41); eq(g.stats.totalLost, 41); eq(g.bankroll, 959); eq(g.totalValue(), 959);
+  const h = G(); h.placeBet('lay4', 40); const f = ev(R(h, 4), 'lay4'); eq(f.vig, 0); eq(f.lost, 40, "a 'win' table loses the stake only");
+});
+test("buyVig 'upfront': 5% at booking, full true odds less the next decision's vig, refund on take-down", () => {
+  const g = pt(6, 10, 1000, { buyVig: 'upfront' }); const b0 = g.bankroll; const r = g.placeBet('buy4', 20); eq(r.vig, 1); eq(g.bankroll, b0 - 21); eq(g.vigPaid.buy4, 1);
+  const w = ev(R(g, 4), 'buy4'); eq(w.win, 39); eq(g.vigPaid.buy4, 1, 'next decision prepaid'); eq(g.bets.buy4, 20);
+  const rm = g.removeBet('buy4'); eq(rm.removed[0].vig, 1); eq(g.bankroll, b0 + 39);
+  const l = pt(6, 10, 1000, { buyVig: 'upfront' }); l.placeBet('buy10', 40); const e = ev(R(l, 7), 'buy10'); eq(e.vig, 2); eq(e.lost, 42);
+  ok(/paid up front/.test(l.betInfo('buy4').pays)); ok(/paid on win/.test(G().betInfo('buy4').pays)); eq(sanitizeSettings({ buyVig: 'soon' }).buyVig, 'win'); eq(sanitizeSettings({ buyVig: 'upfront' }).buyVig, 'upfront');
+  const s = pt(6, 10, 30, { buyVig: 'upfront' }); eq(s.placeBet('buy4', 20).ok, false, '$20 rack cannot cover $20 + $1'); ok(s.chipStake('buy4', 20).broke, 'chipStake flags it');
+});
+test("buyVig 'upfront' survives serialize/restore; switching to 'win' refunds the prepaid vig", () => {
+  const g = G(1000, { buyVig: 'upfront' }); g.placeBet('buy5', 40); eq(g.vigPaid.buy5, 2); eq(CrapsGame.restore(g.serialize()).vigPaid.buy5, 2);
+  const r = g.setSettings({ buyVig: 'win' }); eq(r.refunds.length, 1); eq(r.refunds[0].vig, 2); eq(g.vigPaid.buy5, undefined); eq(g.bankroll, 960);
+});
+test('setSettings sanitizes every change and emits settings', () => {
+  const g = G(); let got = null; g.on('settings', (p) => { got = p; }); g.setSettings({ tableMin: -5, roundUpMax: 99, foo: 1, layVig: 'never' });
+  eq(g.settings.tableMin, 1); eq(g.settings.roundUpMax, 25); eq('foo' in g.settings, false); eq(g.settings.layVig, 'win'); ok(got && got.settings === g.settings, 'event');
+  const u = G(1000, { layVig: 'upfront' }); u.placeBet('lay4', 40); u.setSettings({ roundUpMax: 1 }); eq(u.vigPaid.lay4, 1, 'unrelated change keeps prepaid vig');
+});
+test('Lay minimum is set by the win: $5 table -> Lay 4/10 $10, 5/9 $9, 6/8 $6; layMin 20 -> $40 / $30 / $24', () => {
+  const g = G(); eq(g.minFor('lay4'), 10); eq(g.minFor('lay10'), 10); eq(g.minFor('lay5'), 9); eq(g.minFor('lay9'), 9); eq(g.minFor('lay6'), 6); eq(g.minFor('lay8'), 6);
+  const v = g.placeBet('lay4', 6); eq(v.ok, false); ok(/win at least \$5/.test(v.reason), v.reason); eq(g.chipStake('lay4', 5).add, 0, '$5 chip waits');
+  const h = G(1000, { layMin: 20 }); eq(h.minFor('lay4'), 40); eq(h.minFor('lay5'), 30); eq(h.minFor('lay6'), 24); eq(h.winFor('lay4', 40), 19);
+  for (const n of POINTS) { const m = h.minFor('lay' + n); eq(payout(m, LAY_ODDS[n]) >= 20, true, 'lay' + n); ok(vig(payout(m, LAY_ODDS[n])) / payout(m, LAY_ODDS[n]) <= 0.05 + 1e-9, 'honest 5% on lay' + n); }
+  eq(sanitizeSettings({ layMin: 'x' }).layMin, 0); eq(sanitizeSettings({ layMin: 25 }).layMin, 25); eq(G().minFor('dontPassOdds'), 1, 'lay odds keep no minimum');
+});
+test('OFF bets emit an off event on a deciding roll: Buy 10 on a come-out 7, Place 6 on a come-out 6, Hard 8 on 4-4', () => {
+  const g = G(); g.placeBet('buy10', 20); const r = R(g, 7), e = ev(r, 'buy10'); ok(isOff(e), JSON.stringify(e)); eq(e.note, 'Off on the come-out'); eq(e.returned, 0); eq(g.bets.buy10, 20); eq(r.net, 0);
+  const h = G(); h.placeBet('place6', 12); h.placeBet('hard8', 5); h.placeBet('big8', 10); h.setWorking('big8', false); const a = h.resolveRoll(4, 4);
+  ok(isOff(ev(a, 'hard8')), 'hard8'); ok(isOff(ev(a, 'big8')), 'big8'); eq(ev(a, 'place6'), undefined, 'not decided by an 8');
+  const p = G(); p.placeBet('place6', 12); ok(isOff(ev(R(p, 6), 'place6')), 'place6 on a come-out 6'); eq(p.bets.place6, 12);
+  const n = pt(5); n.placeBet('lay4', 40); n.setWorking('lay4', false); eq(ev(R(n, 9), 'lay4'), undefined, 'no event on a non-deciding roll');
+  const o = ev(R(n, 7), 'lay4'); ok(isOff(o), 'lay4 OFF on a 7 during the point'); eq(o.note, 'Off'); eq(n.bets.lay4, 40);
+});
+
+// ============================================================
+section('Round 9: lay limits by the win, prop / bonus maximums, next-roll outcomes');
+test('Lay max is set by the WIN: $5,000 table lays $10,000 on 4, $7,500 on 5, $6,000 on 6', () => {
+  const g = G(1e6);
+  eq(g.maxFor('lay4'), 10000); eq(g.maxFor('lay10'), 10000); eq(g.maxFor('lay5'), 7500); eq(g.maxFor('lay9'), 7500); eq(g.maxFor('lay6'), 6000); eq(g.maxFor('lay8'), 6000);
+  eq(g.placeBet('lay4', 10000).ok, true); const r = g.validate('lay4', 2); eq(r.ok, false); ok(/\$10000 \(a \$5000 win\)/.test(r.reason), r.reason);
+  eq(g.placeBet('lay5', 7500).ok, true); eq(g.placeBet('lay6', 6000).ok, true); eq(g.placeBet('lay6', 6).ok, false);
+  eq(g.placeBet('buy4', 5001).ok, false, 'a buy is limited by the bet');
+});
+test('Max lay pays the table max less vig: Lay 4 $10,000 wins $4,750', () => { const g = G(1e6); g.placeBet('lay4', 10000); eq(ev(R(g, 7), 'lay4').win, 4750); eq(g.winFor('lay4'), 4750); });
+test('Lay chip at the limit is capped by the win, change returned', () => { const g = G(1e6); g.placeBet('lay4', 9990); const s = g.chipStake('lay4', 25); eq(s.add, 10); eq(s.change, 15); eq(s.rounded, 'capped'); });
+test('restore() caps an over-limit lay at its win limit and refunds the rest', () => { const [h, v] = conserve({ bankroll: 0, point: 6, bets: { lay4: 12000, lay6: 6000 } }); eq(h.bets.lay4, 10000); eq(h.bets.lay6, 6000); eq(h.bankroll, 2000); eq(h.totalValue(), v); });
+test('propMax caps props, hops, horn family and hardways — not the Field or Big 6/8', () => {
+  const g = G(1e5, { propMax: 100 });
+  eq(g.placeBet('hard8', 100).ok, true); const r = g.validate('hard8', 1); eq(r.ok, false); ok(/Maximum on Hard 8 is \$100/.test(r.reason), r.reason);
+  for (const id of ['any7', 'anyCraps', 'eleven', 'twelve', 'hop33', 'hop25']) { eq(g.validate(id, 101).ok, false, id); eq(g.validate(id, 100).ok, true, id); }
+  eq(g.placeBet('horn', 100).ok, true); eq(g.validate('world', 105).ok, false); eq(g.validate('hornHigh2', 100).ok, true);
+  eq(g.placeBet('field', 500).ok, true); eq(g.placeBet('big6', 500).ok, true); eq(g.placeBet('pass', 5000).ok, true);
+});
+test('bonusMax caps the Fire Bet and All / Tall / Small only', () => {
+  const g = G(1e5, { bonusMax: 25 });
+  eq(g.validate('fire', 26).ok, false); eq(g.placeBet('fire', 25).ok, true); eq(g.validate('small', 26).ok, false); eq(g.placeBet('all', 25).ok, true); eq(g.validate('any7', 500).ok, true);
+});
+test('propMax / bonusMax sanitized: 0 = table max, >= table max = 0, never below a 5-unit stake', () => {
+  eq(sanitizeSettings({}).propMax, 0); eq(sanitizeSettings({ propMax: 9000 }).propMax, 0); eq(sanitizeSettings({ propMax: 2 }).propMax, 5); eq(sanitizeSettings({ propMax: -3 }).propMax, 0);
+  eq(sanitizeSettings({ bonusMax: 'x' }).bonusMax, 0); eq(sanitizeSettings({ bonusMax: 50 }).bonusMax, 50); eq(sanitizeSettings({ propMax: 3, propMin: 2 }).propMax, 10);
+  eq(G().maxFor('hard6'), 5000, 'default = table max');
+});
+test('restore() trims over-limit props to the limit in whole units (money conserved)', () => {
+  const [h, v] = conserve({ bankroll: 0, point: null, bets: { hornHigh2: 115, horn: 108, any7: 150 }, settings: { propMax: 102 } });
+  eq(h.bets.hornHigh2, 100); eq(h.bets.horn, 100); eq(h.bets.any7, 102); eq(h.totalValue(), v);
+});
+test('setSettings({ propMax }) applies at once; limitLabel reads like a dealer', () => {
+  const g = G(); g.setSettings({ propMax: 200 }); eq(g.maxFor('two'), 200); eq(g.limitLabel('two'), '$1 – $200'); eq(g.limitLabel('pass'), '$5 – $5000');
+  eq(g.limitLabel('lay4'), '$10 – $10000 (wins $5 – $5000)'); eq(g.limitLabel('passOdds'), 'no odds yet'); eq(pt(4).limitLabel('passOdds'), 'max odds $30');
+});
+test('rollOutcomes: Pass $10 on the come-out — 8 ways win $10, 4 ways lose, EV +$1.11', () => {
+  const g = G(); g.placeBet('pass', 10); let fired = 0; g.on('*', () => fired++);
+  const o = g.rollOutcomes();
+  eq(o.rows.length, 21); near(o.rows.reduce((s, r) => s + r.prob, 0), 1, 1e-12, 'probabilities');
+  eq(o.byTotal[7 - 2].net, 10); eq(o.byTotal[11 - 2].net, 10); eq(o.byTotal[2 - 2].net, -10); eq(o.byTotal[12 - 2].net, -10); eq(o.byTotal[6 - 2].net, 0);
+  near(o.expected, 10 / 9, 1e-9, 'EV'); near(o.pWin, 8 / 36, 1e-12); near(o.pLose, 4 / 36, 1e-12); near(o.pNone, 24 / 36, 1e-12);
+  eq(o.best, 10); eq(o.worst, -10); eq(o.atRisk, 10);
+  eq(fired, 0, 'no events'); eq(g.bankroll, 990); eq(g.bets.pass, 10); eq(g.history.length, 0); eq(g.point, null); eq(g.stats.rolls, 0);
+});
+test('rollOutcomes splits hard and easy ways', () => {
+  const g = pt(6); g.placeBet('hard8', 10); const o = g.rollOutcomes(); const b8 = o.byTotal[8 - 2];
+  eq(b8.hardNet, 90); eq(b8.easyNet, -10); near(b8.net, (90 - 40) / 5, 1e-9); eq(o.byTotal[7 - 2].net, -20); eq(o.byTotal[6 - 2].net, 10); eq(o.worst, -20); eq(o.best, 90);
+  eq(o.rows.find((r) => r.d1 === 3 && r.d2 === 4).outcome, 'seven-out'); eq(o.rows.find((r) => r.d1 === 2 && r.d2 === 4).call, 'Six easy — Winner, Pay the Line!');
+});
+test('rollOutcomes: Place 6 $6 has EV -$1/36 per roll; OFF bets show nothing on the come-out', () => {
+  const pl = pt(4); pl.placeBet('place6', 6); const e = pl.rollOutcomes(); const pass4 = (10 * 3 - 10 * 6) / 36; near(e.expected, pass4 + (7 * 5 - 6 * 6) / 36, 1e-9, 'pass on 4 + place 6');
+  eq(e.byTotal[6 - 2].net, 7); eq(e.byTotal[7 - 2].net, -16); eq(e.byTotal[4 - 2].net, 10);
+  const h = G(); h.placeBet('place6', 12); const q = h.rollOutcomes(); eq(q.byTotal[6 - 2].net, 0); eq(q.byTotal[7 - 2].net, 0); eq(q.pNone, 1);
+  eq(G().rollOutcomes().pNone, 1, 'empty table'); eq(G().rollOutcomes().atRisk, 0);
+});
+test('rollOutcomes matches the real roll on a busy table (every combination)', () => {
+  const build = () => { const g = G(1e5, { layVig: 'upfront' }); g.placeBet('pass', 10); g.placeBet('fire', 5); g.placeBet('small', 5); R(g, 8); g.placeBet('passOdds', 50); g.placeBet('come', 10); R(g, 5); g.placeBet('comeOdds5', 20);
+    g.placeBet('dontCome', 10); R(g, 9); g.placeBet('place6', 12); g.placeBet('buy4', 20); g.placeBet('lay10', 40); g.placeBet('hard6', 5); g.placeBet('horn', 4); g.placeBet('world', 5); g.placeBet('field', 5); g.placeBet('hop34', 1); g.setWorking('place6', false); return g; };
+  const o = build().rollOutcomes();
+  for (const r of o.rows) { const g = build(); eq(g.resolveRoll(r.d1, r.d2).net, r.net, `${r.d1}-${r.d2}`); }
+});
+
+// ============================================================
+section('Round 10: limits enforced live, no free commission, dealer caps, honest labels');
+// the critic's repro table: point 4, Pass $5000, Place 6 $3000, Hard 8 $500 on a $5,000 table
+const bigTable = () => { const g = G(1e5); g.placeBet('pass', 5000); R(g, 4); g.placeBet('place6', 3000); g.placeBet('hard8', 500); g.placeBet('field', 2000); g.placeBet('passOdds', 100); return g; };
+test('setSettings lowering limits trims live bets to clean amounts, refunds the rest, emits limits', () => {
+  const g = bigTable(), v0 = worth(g); let lim = null; g.on('limits', (p) => { lim = p; });
+  const r = g.setSettings({ propMax: 100, tableMax: 1000 });
+  eq(g.bets.hard8, 100); eq(g.bets.place6, 996, 'Place 6 floored to $6 units'); eq(g.bets.pass, 1000); eq(g.bets.field, 1000); eq(g.bets.passOdds, 100, 'odds still within 3x of $1000');
+  eq(worth(g), v0, 'money conserved'); ok(lim && lim.trimmed.length === 4, JSON.stringify(lim)); eq(r.trimmed.find((x) => x.id === 'place6').refund, 2004);
+  const q = G(); q.setSettings({ roundUpMax: 1 }); let fired = false; q.on('limits', () => { fired = true; }); eq(q.setSettings({ tableMax: 4000 }).trimmed.length, 0); eq(fired, false, 'nothing over: no limits event');
+});
+test('rollOutcomes after a limit change equals the live roll on all 21 combinations', () => {
+  const mk = () => { const g = bigTable(); g.setSettings({ propMax: 100, tableMax: 1000 }); return g; };
+  const o = mk().rollOutcomes();
+  for (const r of o.rows) { const g = mk(); eq(g.resolveRoll(r.d1, r.d2).net, r.net, `${r.d1}-${r.d2}`); }
+  eq(o.rows.find((r) => r.d1 === 4 && r.d2 === 4).net, 900 - 1000, 'Hard 8 $100 wins $900, the $1000 Field loses');
+  eq(mk().resolveRoll(4, 4).events.find((e) => e.id === 'hard8').win, 900);
+  eq(mk().resolveRoll(3, 3).events.find((e) => e.id === 'place6').win, 1162, 'Place 6 $996 pays 7:6');
+});
+test('rollOutcomes is a raw copy: even a bet a reload would trim is resolved as it really stands', () => {
+  const g = bigTable(); g.settings = { ...g.settings, tableMax: 1000 }; // forced past setSettings (as an old save might)
+  const o = g.rollOutcomes(); const h = bigTable(); h.settings = { ...h.settings, tableMax: 1000 };
+  eq(o.rows.find((r) => r.d1 === 3 && r.d2 === 4).net, h.resolveRoll(3, 4).net, 'seven row'); eq(o.rows.find((r) => r.d1 === 3 && r.d2 === 4).net, -(5000 + 100 + 3000 + 500 + 2000));
+  eq(o.rows.find((r) => r.d1 === 2 && r.d2 === 2).net, 5000 + 200 + 2000, 'hard 4: pass + odds 2:1 + field 1:1, all at their real (over-limit) size');
+});
+test('Lowering the odds multiple trims odds already up (3x -> 1x on a 4: $30 -> $10)', () => {
+  const g = pt(4); g.placeBet('passOdds', 30); const v0 = worth(g); const r = g.setSettings({ odds: 1 }); eq(g.bets.passOdds, 10); eq(worth(g), v0); eq(r.trimmed[0].refund, 20);
+  const d = G(); d.placeBet('dontPass', 10); R(d, 6); d.placeBet('dontPassOdds', 60); d.setSettings({ odds: 2 }); eq(d.bets.dontPassOdds, 24, 'lay odds to win 2x $10 on the 6');
+});
+test("No free decision: switching buyVig to 'upfront' with Buy 4 $20 up charges the $1 now; hard 4 adds +$39", () => {
+  const g = pt(6); g.placeBet('buy4', 20); const v0 = worth(g), b0 = g.bankroll;
+  const r = g.setSettings({ buyVig: 'upfront' }); eq(r.charges.length, 1); eq(r.charges[0].vig, 1); eq(g.bankroll, b0 - 1); eq(g.vigPaid.buy4, 1); eq(worth(g), v0, 'prepaid vig is still value');
+  g.resolveRoll(2, 2); eq(worth(g) - v0, 39); eq(g.vigPaid.buy4, 1, 'next decision prepaid');
+});
+test("No free decision: switching layVig to 'upfront' with Lay 4 $40 up; a 7 adds +$19 (also when the rack is empty)", () => {
+  const g = G(1000); R(g, 6); g.placeBet('lay4', 40); const v0 = worth(g); g.setSettings({ layVig: 'upfront' }); eq(g.vigPaid.lay4, 1); R(g, 7); eq(worth(g) - v0, 19);
+  const e = G(40); R(e, 6); e.placeBet('lay4', 40); eq(e.bankroll, 0); const r = e.setSettings({ layVig: 'upfront' }); eq(r.charges.length, 0, 'rack cannot cover it');
+  const w = ev(R(e, 7), 'lay4'); eq(w.win, 18, 'this decision and the next taken from the $20 win'); ok(/this decision and the next/.test(w.note), w.note); eq(worth(e), 40 + 19);
+});
+test("restore() of an 'upfront' table with no prepaid vig still collects it from the win", () => {
+  const h = CrapsGame.restore({ bankroll: 1000, point: 6, settings: { buyVig: 'upfront' }, bets: { buy4: 20 } }); const v0 = worth(h);
+  eq(ev(h.resolveRoll(2, 2), 'buy4').win, 38); eq(worth(h) - v0, 39);
+  const l = CrapsGame.restore({ bankroll: 1000, point: 6, settings: { layVig: 'upfront' }, bets: { lay4: 40 } }); const l0 = worth(l); R(l, 7); eq(worth(l) - l0, 19);
+});
+test('chipStake caps flats, props and unit bets at the max with change (dealer books what fits)', () => {
+  const g = G(1e5); g.placeBet('field', 4990); const s = g.chipStake('field', 25); eq(s.add, 10); eq(s.change, 15); eq(s.rounded, 'capped'); eq(g.validate('field', s.add).ok, true);
+  const f = G(1e5); f.placeBet('field', 5000); const t = f.chipStake('field', 25); eq(t.add, 0); eq(t.change, 25); eq(t.rounded, 'capped');
+  const h = G(1e5, { propMax: 50 }); h.placeBet('horn', 48); const u = h.chipStake('horn', 25); eq(u.add, 0); eq(u.change, 25); eq(u.rounded, 'capped');
+  const k = G(1e5, { propMax: 50 }); k.placeBet('horn', 40); const x = k.chipStake('horn', 25); eq(x.add, 8); eq(x.change, 17); eq(k.validate('horn', 8).ok, true);
+  const c = G(1e5, { propMax: 50 }); c.placeBet('ce', 46); eq(c.chipStake('ce', 25).add, 4); const w = G(1e5, { propMax: 52 }); w.placeBet('world', 45); eq(w.chipStake('world', 25).add, 5);
+  const a = G(1e5, { propMax: 100 }); a.placeBet('any7', 90); const y = a.chipStake('any7', 25); eq(y.add, 10); eq(y.change, 15);
+  const p = G(); p.placeBet('horn', 4); eq(p.chipStake('horn', 1).pending, 1, 'small chips still accumulate below the max');
+});
+test('restore() trims boxes, buys and lays to payable totals (Place 6 $4998, Buy 5 $5000, Lay 5 $7500)', () => {
+  const [h, v] = conserve({ bankroll: 0, point: 6, bets: { place6: 6000, place8: 5003, buy5: 6000, buy4: 5003, lay5: 9000, lay8: 9999 } });
+  eq(h.bets.place6, 4998); eq(h.bets.place8, 4998); eq(h.bets.buy5, 5000); eq(h.bets.buy4, 5000); eq(h.bets.lay5, 7500); eq(h.bets.lay8, 6000); eq(h.totalValue(), v);
+  for (const id of Object.keys(h.bets)) eq(h.bets[id] % h.unitFor(id), 0, id);
+});
+test('limitLabel and maxBookable show only what can be booked', () => {
+  const g = G(1e5, { tableMax: 5001 }); eq(g.limitLabel('lay5'), '$9 – $7500 (wins $6 – $5000)'); eq(payout(7500, LAY_ODDS[5]), 5000);
+  eq(G().limitLabel('lay4'), '$10 – $10000 (wins $5 – $5000)'); eq(G().limitLabel('lay6'), '$6 – $6000 (wins $5 – $5000)'); eq(G().limitLabel('place6'), '$5 – $4998');
+  const p = G(1000, { propMax: 7 }); eq(p.limitLabel('horn'), '$4 – $4'); eq(p.limitLabel('world'), '$5 – $5'); eq(p.limitLabel('hornHigh2'), '$5 – $5'); eq(p.limitLabel('ce'), '$2 – $6'); eq(p.maxBookable('world'), 5); eq(p.maxBookable('hop11'), 7);
+  for (const id of ['horn', 'ce', 'world', 'hornHigh3']) ok(p.maxBookable(id) >= p.minFor(id), `${id} has a usable maximum`);
+});
+test('Buy / Lay limit policy is stated in betInfo', () => {
+  ok(/table max on the bet/.test(G().betInfo('buy4').limit)); ok(/commission on top/.test(G().betInfo('buy4').limit));
+  ok(/\$5000 win/.test(G().betInfo('lay6').limit)); eq(G().betInfo('place6').limit, undefined);
+});
+test('rollOutcomes bestTotals / worstTotals: what the player is rooting for', () => {
+  const g = pt(6); g.placeBet('place8', 12); const o = g.rollOutcomes();
+  eq(o.bestTotals.map((x) => x.total).join(), '8,6'); eq(o.bestTotals[0].net, 14); eq(o.bestTotals[0].ways, 5);
+  eq(o.worstTotals.map((x) => x.total).join(), '7'); eq(o.worstTotals[0].net, -22);
+  const e = G().rollOutcomes(); eq(e.bestTotals.length, 0); eq(e.worstTotals.length, 0);
+});
+test("Session P&L uses totalValue: an 'upfront' lay costs nothing until it loses", () => {
+  const g = G(1000, { layVig: 'upfront' }); R(g, 6); g.placeBet('lay4', 40); eq(g.totalValue() - 1000, 0); eq(g.bankroll + g.totalOnTable() - 1000, -1, 'the old formula read -$1');
+});
+
+// ============================================================
+// Heavy simulations run after the first paint, in chunks, so the page responds at once.
+const simSec = section('Simulation integrity');
+const simTests = [];
+const simTest = (name, fn) => {
+  const row = document.createElement('div'); row.className = 't'; row.innerHTML = `<b>…</b><span>${name}</span><i></i>`; out.appendChild(row);
+  simTests.push({ name, fn, row });
+};
+const yieldUI = () => new Promise((r) => setTimeout(r, 0));
+async function loop(n, chunk, body) { for (let i = 0; i < n; i++) { body(i); if (i % chunk === chunk - 1) await yieldUI(); } }
+
+simTest('Money conservation over 20,000 auto-played rolls', async () => {
+  const rng = makeRng(1234); const g = G(1e9); let net = 0;
+  await loop(20000, 4000, (i) => { for (const [id, a] of autoStrategy(g, 10, i)) g.placeBet(id, a); const before = worth(g); const r = g.resolveRoll(rollDie(rng), rollDie(rng)); if (Math.abs(worth(g) - before - r.net) > 1e-6) throw new Error('mismatch at roll ' + i); net += r.net; });
+  eq(Math.round(worth(g)), Math.round(1e9 + net));
+});
+simTest('Fuzz: random bets of every type, 15,000 rolls, ledger + invariants', async () => {
+  const ids = ['pass', 'dontPass', 'passOdds', 'dontPassOdds', 'come', 'dontCome', 'field', 'big6', 'big8', 'hard4', 'hard6', 'hard8', 'hard10', 'any7', 'anyCraps', 'two', 'three', 'eleven', 'twelve', 'horn', 'ce',
+    'world', 'hornHigh2', 'hornHigh3', 'hornHigh11', 'hornHigh12', 'fire', 'small', 'tall', 'all', ...HOP_IDS.filter((_, i) => i % 3 === 0),
+    ...POINTS.flatMap((n) => ['place' + n, 'buy' + n, 'lay' + n, 'come' + n, 'comeOdds' + n, 'dontComeOdds' + n])];
+  const rng = makeRng(42); const g = G(1e8, { placeWorkingOnComeOut: false }); let accepted = 0;
+  await loop(15000, 2500, (i) => {
+    for (let k = 0; k < 3; k++) { const id = ids[Math.floor(rng() * ids.length)]; const amt = [1, 2, 4, 5, 6, 8, 10, 12, 25, 30][Math.floor(rng() * 10)]; if (g.placeBet(id, amt).ok) accepted++; }
+    if (rng() < 0.1) { const ks = Object.keys(g.bets); if (ks.length) g.removeBet(ks[Math.floor(rng() * ks.length)]); }
+    if (rng() < 0.05) { const ks = Object.keys(g.bets).filter((x) => g.canToggleWorking(x)); if (ks.length) g.toggleWorking(ks[Math.floor(rng() * ks.length)]); }
+    const before = worth(g); const [a, b] = rollDice(rng); const r = g.resolveRoll(a, b);
+    if (Math.abs(worth(g) - before - r.net) > 1e-6) throw new Error(`ledger mismatch roll ${i}`);
+    if (g.point && !POINTS.includes(g.point)) throw new Error('bad point');
+    if (g.point == null && (g.bets.passOdds || g.bets.dontPassOdds)) throw new Error('odds left with puck OFF');
+    for (const n of POINTS) { if (g.bets['comeOdds' + n] && !g.bets['come' + n]) throw new Error('orphan come odds ' + n); if (g.bets['place' + n] && g.bets['buy' + n]) throw new Error('place+buy on ' + n); }
+    if (g.bets.come) throw new Error('come bar bet left after roll');
+    if (g.bets.dontCome && a + b !== 12) throw new Error("don't come bar bet left after a non-12");
+    if (g.bets.horn % 4 || g.bets.ce % 2 || g.bets.world % 5) throw new Error('prop units broken');
+    for (const v of Object.values(g.bets)) if (!(v > 0) || !Number.isInteger(v)) throw new Error('bad stake');
+    if (!Number.isInteger(g.bankroll)) throw new Error('fractional bankroll at roll ' + i);
+    if (i % 500 === 0) { const h = CrapsGame.restore(JSON.parse(JSON.stringify(g.serialize()))); if (h.totalValue() !== g.totalValue()) throw new Error('restore changed value at roll ' + i); }
+  });
+  ok(accepted > 10000, 'accepted ' + accepted);
+});
+simTest('Pass line Monte-Carlo edge ≈ 1.41% (60k decisions, ±3σ)', async () => {
+  const rng = makeRng(99); const g = G(1e12); let decisions = 0, net = 0;
+  while (decisions < 60000) {
+    for (let k = 0; k < 5000; k++) { if (!g.bets.pass) g.placeBet('pass', 10); const r = g.resolveRoll(rollDie(rng), rollDie(rng)); const e = ev(r, 'pass'); if (e && e.type !== 'push') { decisions++; net += e.type === 'win' ? 10 : -10; } }
+    await yieldUI();
+  }
+  const edge = -net / (decisions * 10) * 100; ok(Math.abs(edge - 1.414) < 3 * 100 / Math.sqrt(decisions), 'edge ' + edge.toFixed(3) + '%');
+});
+simTest('Dice RNG is fair (chi-square over 120k rolls)', async () => {
+  const rng = makeRng(2024); const c = Array(13).fill(0); const N = 120000; await loop(N, 40000, () => { c[rollDie(rng) + rollDie(rng)]++; });
+  let chi = 0; for (let t = 2; t <= 12; t++) { const e = N * WAYS[t] / 36; chi += (c[t] - e) ** 2 / e; } ok(chi < 30, 'chi² ' + chi.toFixed(2));
+});
+test('Seeded RNG is deterministic', () => { const a = makeRng(7), b = makeRng(7); for (let i = 0; i < 50; i++) eq(rollDie(a), rollDie(b)); });
+
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+const banner = document.getElementById('banner');
+const summary = document.getElementById('summary');
+const sub = '<small>Craps rules engine · src/rules.js · casino rules, payouts, breakage, limits, events</small>';
+let simDone = 0;
+function report(done) {
+  if (done) { banner.className = fail ? 'fail' : 'pass'; banner.textContent = fail ? `${fail} FAILED` : 'ALL PASSED'; }
+  else { banner.className = fail ? 'fail' : ''; banner.textContent = fail ? `${fail} FAILED…` : 'RUNNING…'; }
+  summary.innerHTML = `${pass} tests passed · ${fail} failed · ${asserts} assertions${done ? '' : ` · ${simTests.length - simDone} simulations running`} ${sub}${failures.length ? `<div class="fails">${failures.slice(0, 6).map(([n, m]) => `<div><b>✗ ${esc(n)}</b> — ${esc(m)}</div>`).join("")}${failures.length > 6 ? `<div>… and ${failures.length - 6} more</div>` : ""}</div>` : ""}`;
+}
+report(false);
+(async () => {
+  await yieldUI();
+  for (const s of simTests) {
+    const a0 = asserts, t0 = performance.now();
+    try { await s.fn(); pass++; tally(simSec, true); s.row.className = 't ok'; s.row.innerHTML = `<b>PASS</b><span>${s.name}</span><i>${asserts - a0} · ${Math.round(performance.now() - t0)}ms</i>`; }
+    catch (e) { fail++; failures.push([s.name, e.message]); tally(simSec, false); s.row.className = 't bad'; s.row.innerHTML = `<b>FAIL</b><span>${s.name}<span class="msg">${e.message}</span></span>`; }
+    simDone++; report(false);
+  }
+  report(true);
+  window.__testsDone = true;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# build output (CI rebuilds it)
+dist/
+# local review captures, reference images and backups: not part of the game
+.review/
+tests/_dbg_*.html

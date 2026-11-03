@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aurelia Craps</title>
+<meta name="theme-color" content="#060404">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<style>/* critical: boot fallback and tooltip stay hidden even if styles.css is late or mid-edit */
+.boot-fail:not(.show){display:none!important}#tooltip:not(.show){visibility:hidden}</style>
+<script>
+  // Visible error overlay (headless screenshots cannot read the console).
+  (function () {
+    function show(msg) {
+      var el = document.getElementById('errorOverlay');
+      if (!el) { el = document.createElement('pre'); el.id = 'errorOverlay'; (document.body || document.documentElement).appendChild(el); }
+      el.style.display = 'block';
+      el.textContent += msg + '\n\n';
+      window.__bootErrors = (window.__bootErrors || 0) + 1;
+    }
+    window.__showError = show;
+    window.addEventListener('error', function (e) {
+      if (e.target && e.target !== window && (e.target.src || e.target.href)) { show('Failed to load resource: ' + (e.target.src || e.target.href)); return; }
+      show('Error: ' + e.message + '\n  at ' + e.filename + ':' + e.lineno + ':' + e.colno + (e.error && e.error.stack ? '\n' + e.error.stack : ''));
+    }, true);
+    window.addEventListener('unhandledrejection', function (e) { var r = e.reason; show('Unhandled rejection: ' + (r && (r.stack || r.message) || r)); });
+  })();
+</script>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="loader">
+  <div class="loader-ring"><span></span></div>
+  <div class="loader-title">AURELIA</div>
+  <div class="loader-rule"></div>
+  <div class="loader-sub">Setting the table</div>
+</div>
+
+<div id="hud">
+  <!-- ======= top-left: house plaque + bankroll ======= -->
+  <!-- one slim row (Evolution-weight): Balance | Total bet | Session; Best win unfolds on hover -->
+  <section class="panel plaque" id="plaque">
+    <div class="bank-row">
+      <div class="bank-main">
+        <div class="label">Balance</div>
+        <div id="bankroll" class="money big fit">$1,000</div>
+      </div>
+      <div class="bank-main bank-bet">
+        <div class="label">Total bet</div>
+        <div id="totalBet" class="money big fit">$0</div>
+      </div>
+      <div class="bank-main bank-sess">
+        <div class="label">Session</div>
+        <div class="sess-val fit"><b id="session" class="zero">$0</b></div>
+      </div>
+    </div>
+    <div class="bank-more"><b id="onTable" hidden>$0</b><span>Best win this session</span><b id="statBest">$0</b></div>
+  </section>
+
+  <!-- ======= top-center: puck + game state ======= -->
+  <div id="status" class="status">
+    <div class="puck-seat"><div id="puckIcon" class="puck-icon off">OFF</div></div>
+    <div class="status-text">
+      <div id="statusMain">Come-Out Roll</div>
+      <div id="statusSub">Place your Pass Line bet</div>
+    </div>
+    <div class="point-track" id="pointTrack" aria-label="Point">
+      <span data-n="4">4</span><span data-n="5">5</span><span data-n="6">6</span><span data-n="8">8</span><span data-n="9">9</span><span data-n="10">10</span>
+    </div>
+  </div>
+
+  <!-- ======= top-right: system buttons ======= -->
+  <nav class="top-actions">
+    <span class="brand-mini" aria-label="Aurelia Grand Craps"><span class="brand-gem"></span><span class="brand-name">AURELIA</span><span class="brand-div"></span></span>
+    <button class="icon-btn" id="camBtn" data-tip="Change view · V" aria-label="Change view"><svg viewBox="0 0 24 24"><path d="M4 7.5h3l2-2.2h6l2 2.2h3v11.2H4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="12" cy="12.8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+    <button class="icon-btn" id="soundBtn" data-tip="Sound · M" aria-label="Sound"><svg viewBox="0 0 24 24"><path d="M4 9.2h3.6L12.4 5v14l-4.8-4.2H4z" fill="currentColor"/><path class="wave" d="M15.6 8.6c1.4 1.2 1.4 5.6 0 6.8M18.2 6.2c2.8 2.4 2.8 9.2 0 11.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path class="mute" d="M16 9.4l4.6 5.2M20.6 9.4L16 14.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+    <button class="icon-btn" id="settingsBtn" data-tip="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M19.4 13.5l1.6 1.2-1.8 3.1-1.9-.7a7.4 7.4 0 0 1-1.9 1.1L15 20.2h-3.6l-.4-2a7.4 7.4 0 0 1-1.9-1.1l-1.9.7-1.8-3.1 1.6-1.2a7.6 7.6 0 0 1 0-2.2L5.4 10l1.8-3.1 1.9.7a7.4 7.4 0 0 1 1.9-1.1l.4-2H15l.4 2a7.4 7.4 0 0 1 1.9 1.1l1.9-.7L21 10l-1.6 1.2a7.6 7.6 0 0 1 0 2.3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" transform="translate(-0.6 -0.2)"/></svg></button>
+    <button class="icon-btn" id="helpBtn" data-tip="Rules &amp; help · H" aria-label="Rules and help"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1.1.9-1.1 1.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/></svg></button>
+  </nav>
+
+  <!-- ======= top-center: stickman call + payout ribbon (sits over the back rail) ======= -->
+  <div id="callout" class="callout">
+    <div id="calloutDice" class="callout-dice"></div>
+    <div id="calloutText"></div>
+    <div id="winBanner" class="win-banner">
+      <div class="wb-head"><div class="wb-title" id="wbTitle">WINNER</div><div class="wb-amount" id="wbAmount">+$0</div></div>
+      <div class="wb-lines" id="wbLines"></div>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <div id="tooltip" class="tooltip"></div>
+
+  <!-- ======= bottom bar ======= -->
+  <footer class="bottombar">
+    <!-- bottom-left: roll history (dead space below the front rail) -->
+    <aside class="panel history-panel empty" id="historyPanel">
+      <div class="panel-head">
+        <button class="panel-title hist-toggle" id="histToggle" data-tip="Compact history · show last 3" aria-label="Toggle compact history">Last Rolls</button>
+        <div class="hist-stats">
+          <span class="hs"><span class="hs-of" id="histOf"></span><b id="statRolls">0</b> rolls</span>
+          <span class="hs"><b id="statPoints">0</b> points</span>
+          <span class="hs shooter" id="shooterRoll">Shooter <b>0</b></span>
+        </div>
+      </div>
+      <ol id="historyList"></ol>
+    </aside>
+
+    <div class="tray-wrap dock" id="dock">
+      <div class="chip-tray" id="chipTray"></div>
+      <span class="dock-div" aria-hidden="true"></span>
+      <div class="quick-actions">
+        <button class="rbtn" id="rebetBtn" data-tip="Rebet · R" aria-label="Rebet"><svg viewBox="0 0 24 24"><path d="M18.6 9.2A7.2 7.2 0 1 0 19 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M19.4 4.6v4.9h-4.9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="cap">Rebet</span></button>
+        <button class="rbtn" id="pressBtn" data-tip="Press with winnings · P" aria-label="Press"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="17.6" rx="6.6" ry="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.4 14.4c0 1.3 3 2.4 6.6 2.4s6.6-1.1 6.6-2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 12.2V3.8M8.6 7.1 12 3.7l3.4 3.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="cap">Press</span></button>
+        <button class="rbtn" id="clearBtn" data-tip="Clear bets · C" aria-label="Clear bets"><svg viewBox="0 0 24 24"><path d="M9.2 5.4h9.4a1.6 1.6 0 0 1 1.6 1.6v10a1.6 1.6 0 0 1-1.6 1.6H9.2L3.6 12z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M11.4 9.4l5 5.2M16.4 9.4l-5 5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span class="cap">Clear</span></button>
+        <button class="rbtn" id="oddsBtn" data-tip="Odds mode · O" aria-label="Odds mode"><svg viewBox="0 0 24 24"><ellipse cx="14.6" cy="9.6" rx="5.6" ry="5.6" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".75"/><circle cx="9.4" cy="13" r="5.9" fill="rgba(30,22,14,.95)" stroke="currentColor" stroke-width="1.7"/><circle cx="9.4" cy="13" r="2.6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="1.6 1.4"/><path d="M3.2 21.2h17.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="cap">Odds</span></button>
+        <div class="more-wrap">
+          <button class="rbtn" id="moreBtn" data-tip="Max odds · take down · working" aria-label="More actions" aria-haspopup="true"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="18" cy="12" r="1.8" fill="currentColor"/></svg><span class="cap">More</span></button>
+          <div class="more-menu" id="moreMenu" role="menu">
+            <button class="mi" id="maxOddsBtn" role="menuitem"><span class="mi-ico">⇈</span><span class="mi-txt">Max odds<em>Back every line &amp; come bet</em></span></button>
+            <button class="mi" id="takeDownBtn" role="menuitem"><span class="mi-ico">▼</span><span class="mi-txt">Take down places<em>Return place, buy &amp; lay bets</em></span></button>
+            <button class="mi toggle" id="workingBtn" role="menuitemcheckbox"><span class="mi-ico">◐</span><span class="mi-txt">Place bets on come-out<em>Working toggle</em></span><small id="workingState">OFF</small></button>
+          </div>
+        </div>
+      </div>
+      <button id="rollBtn" class="roll-btn" aria-label="Roll the dice (Space)">
+        <svg class="roll-dice" viewBox="0 0 52 24" aria-hidden="true"><defs><linearGradient id="rdF" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8434c"/><stop offset=".55" stop-color="#b3121e"/><stop offset="1" stop-color="#6a050c"/></linearGradient></defs><g transform="rotate(-9 12 12)"><rect x="2" y="2" width="20" height="20" rx="4.6" fill="url(#rdF)"/><rect x="2.6" y="2.6" width="18.8" height="18.8" rx="4.2" fill="none" stroke="rgba(255,190,190,.45)" stroke-width=".9"/><circle cx="7.6" cy="7.6" r="2.1" fill="#fffaf0"/><circle cx="16.4" cy="16.4" r="2.1" fill="#fffaf0"/></g><g transform="rotate(8 40 12)"><rect x="30" y="2" width="20" height="20" rx="4.6" fill="url(#rdF)"/><rect x="30.6" y="2.6" width="18.8" height="18.8" rx="4.2" fill="none" stroke="rgba(255,190,190,.45)" stroke-width=".9"/><circle cx="35.6" cy="7.6" r="2.1" fill="#fffaf0"/><circle cx="40" cy="12" r="2.1" fill="#fffaf0"/><circle cx="44.4" cy="16.4" r="2.1" fill="#fffaf0"/></g></svg>
+        <span class="roll-label">ROLL</span>
+        <span class="roll-key" aria-hidden="true">SPACE</span>
+      </button>
+    </div>
+    <!-- right column: deliberately empty so the dock stays centred over the near rail (never on the felt corners) -->
+    <div class="roll-wrap" aria-hidden="true"></div>
+  </footer>
+
+  <!-- ======= boot fallback (shown by ui.js if the game engine fails to start) ======= -->
+  <div class="boot-fail" id="bootFail">
+    <div class="bf-card">
+      <div class="modal-kicker">Aurelia Grand Craps</div>
+      <h2>The table is being reset</h2>
+      <p>The game engine did not finish loading. Reloading the page usually fixes it.</p>
+      <button class="act gold" id="bootReload">Reload table</button>
+    </div>
+  </div>
+
+  <!-- ======= help ======= -->
+  <div class="modal" id="helpModal">
+    <div class="modal-card wide">
+      <button class="modal-close" data-close aria-label="Close">✕</button>
+      <div class="modal-kicker">Aurelia Grand Craps</div>
+      <h2>How to Play</h2>
+      <div class="help-grid">
+        <section>
+          <h3>The Game</h3>
+          <p>The <b>come-out</b> roll: 7 or 11 wins the Pass Line; 2, 3 or 12 is craps. Any other number becomes the <b>point</b> and the puck turns <b>ON</b>. Roll the point again before a 7 to win; a 7 first is a <b>seven-out</b> and the dice pass.</p>
+          <h3>Controls</h3>
+          <ul class="ctl">
+            <li><b>Click</b> a betting area to place the selected chip; click again to add.</li>
+            <li><b>Right-click</b> a bet to take it down. Contract bets (Pass once a point is set, Come once traveled) stay up.</li>
+            <li><b>Odds:</b> with a point on, click the strip behind the Pass Line, or turn on <b>Odds</b> mode and click Pass / Don't Pass / a number holding your Come bet.</li>
+            <li><b>Shift-click</b> a place, buy, hardway or Big 6/8 bet to turn it ON or OFF.</li>
+            <li><b>Drag</b> to orbit the camera; <b>wheel</b> to zoom.</li>
+          </ul>
+          <h3>Keyboard</h3>
+          <div class="keys">
+            <span><kbd>Space</kbd>Roll</span><span><kbd>1</kbd>–<kbd>6</kbd>Chip</span><span><kbd>O</kbd>Odds mode</span><span><kbd>C</kbd>Clear</span>
+            <span><kbd>R</kbd>Rebet</span><span><kbd>P</kbd>Press</span><span><kbd>⇧</kbd><kbd>P</kbd>Double up</span><span><kbd>W</kbd>Bet ON/OFF</span>
+            <span><kbd>V</kbd>Camera</span><span><kbd>M</kbd>Mute</span><span><kbd>H</kbd>or<kbd>?</kbd>Help</span><span><kbd>Esc</kbd>Close</span>
+          </div>
+        </section>
+        <section>
+          <h3>Payouts <span class="hint">Hover a row for details</span></h3>
+          <table class="pay">
+            <tr><td data-tip="Front line. Wins on 7/11 on the come-out, or when the point repeats before a 7. Come works the same on any later roll and travels to its number.">Pass Line · Come</td><td>1 : 1</td></tr>
+            <tr><td data-tip="The dark side. Wins on 2 or 3 on the come-out (12 is a push), or when a 7 shows before the point. Don't Come works the same after the come-out.">Don't Pass · Don't Come</td><td>1 : 1 <i>12 is bar</i></td></tr>
+            <tr><td data-tip="Placed behind a Pass/Come bet once it has a point. Pays true odds with no house edge. Up to 3× on 4/10, 4× on 5/9, 5× on 6/8.">Free odds 4/10 · 5/9 · 6/8</td><td>2:1 · 3:2 · 6:5 <i>3-4-5×</i></td></tr>
+            <tr><td data-tip="Odds laid behind a Don't Pass/Don't Come bet. Win if 7 rolls before the number.">Lay odds 4/10 · 5/9 · 6/8</td><td>1:2 · 2:3 · 5:6</td></tr>
+            <tr><td data-tip="Click a number box. Wins every time that number rolls before a 7. Off on the come-out unless switched on.">Place 4/10 · 5/9 · 6/8</td><td>9:5 · 7:5 · 7:6</td></tr>
+            <tr><td data-tip="BUY strip under each number pays true odds; LAY strip above it bets the 7 first. 5% commission on the win.">Buy / Lay</td><td>True odds <i>5% vig</i></td></tr>
+            <tr><td data-tip="One-roll bet. Wins on 2, 3, 4, 9, 10, 11 or 12; loses on 5, 6, 7 or 8.">Field 3, 4, 9, 10, 11 · 2 · 12</td><td>1:1 · 2:1 · 3:1</td></tr>
+            <tr><td data-tip="The red 6 and 8 in the corner by the Field. Wins when that number rolls before a 7.">Big 6 / Big 8 <i>corner</i></td><td>1 : 1</td></tr>
+            <tr><td data-tip="Wins if the number rolls as a pair (2-2, 3-3, 4-4, 5-5) before a 7 or the easy way.">Hard 4 / 10 · Hard 6 / 8</td><td>7:1 · 9:1</td></tr>
+            <tr><td data-tip="Center one-roll bets. Seven wins on any 7; Any Craps wins on 2, 3 or 12.">Seven · Any Craps</td><td>4:1 · 7:1</td></tr>
+            <tr><td data-tip="One-roll bets on a single total.">Aces / Twelve · Ace-Deuce / Yo 11</td><td>30:1 · 15:1</td></tr>
+            <tr><td data-tip="Horn splits the stake over 2, 3, 11 and 12. C &amp; E (the circles) splits over Any Craps and Eleven.">Horn · C &amp; E</td><td>Split bets <i>C 3:1 · E 7:1</i></td></tr>
+          </table>
+          <h3>Bets ON / OFF &amp; working</h3>
+          <ul class="ctl">
+            <li>Place, buy, Big 6/8 and hardway bets are <b>OFF on the come-out</b> unless switched on in <b>More</b> or Settings. Come odds are off on the come-out.</li>
+            <li>Payouts round down to the dollar. Table limits <b>$5 – $5,000</b>; free odds up to <b>3-4-5×</b>.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======= settings ======= -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-card">
+      <button class="modal-close" data-close aria-label="Close">✕</button>
+      <div class="modal-kicker">Table preferences</div>
+      <h2>Settings</h2>
+      <div class="row"><span>Game speed<em>Throw and payout pace</em></span>
+        <div class="seg" id="speedSeg" role="radiogroup"><button data-v="normal">Normal</button><button data-v="fast">Fast</button><button data-v="turbo">Turbo</button></div></div>
+      <div class="row"><span>Graphics quality<em>Lower for older GPUs · reloads</em></span>
+        <div class="seg" id="qualitySeg" role="radiogroup"><button data-v="low">Low</button><button data-v="medium">Med</button><button data-v="high">High</button></div>
+        <select id="qualitySel" hidden><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
+      <label class="row"><span>Master volume</span><input type="range" id="volRange" min="0" max="1" step="0.05"></label>
+      <label class="row"><span>Casino ambience<em>Soft crowd &amp; room tone</em></span><input type="checkbox" class="switch" id="ambChk"></label>
+      <label class="row"><span>Stickman calls<em>Dealer voice calls each roll</em></span><input type="checkbox" class="switch" id="callChk"></label>
+      <label class="row"><span>Win chimes<em>Off = realistic table sound (crowd &amp; chips only)</em></span><input type="checkbox" class="switch" id="chimeChk"></label>
+      <label class="row"><span>Cinematic dice camera<em>Follow the dice on each throw</em></span><input type="checkbox" class="switch" id="cineChk"></label>
+      <label class="row"><span>Hardways working on come-out</span><input type="checkbox" class="switch" id="hardChk"></label>
+      <div class="row"><span>Buy commission<em>Up front = classic 5% when booked (Buy 4/10 edge 4.76%)</em></span>
+        <div class="seg" id="buyVigSeg" role="radiogroup"><button data-v="win">On win</button><button data-v="upfront">Up front</button></div></div>
+      <div class="row"><span>Lay commission<em>5% of the win · on win 1.67%, up front 2.44% (Lay 4/10)</em></span>
+        <div class="seg" id="layVigSeg" role="radiogroup"><button data-v="win">On win</button><button data-v="upfront">Up front</button></div></div>
+      <div class="row"><span>Buy minimum<em>$20+ keeps the $1 vig at an honest 5%</em></span>
+        <div class="seg" id="buyMinSeg" role="radiogroup"><button data-v="0">Table</button><button data-v="20">$20</button><button data-v="25">$25</button></div></div>
+      <div class="row"><span>Lay minimum (win)<em>A lay must win at least this much</em></span>
+        <div class="seg" id="layMinSeg" role="radiogroup"><button data-v="0">Table</button><button data-v="20">$20</button></div></div>
+      <div class="row"><span>Dealer round-up<em>Most a dealer adds to make a bet pay clean</em></span>
+        <div class="seg" id="roundUpSeg" role="radiogroup"><button data-v="0">Never</button><button data-v="1">$1</button><button data-v="2">$2</button></div></div>
+      <input type="checkbox" id="fastChk" hidden>
+      <div class="row"><span>Bankroll</span><button class="act small" id="resetBank">Reset to $1,000</button></div>
+    </div>
+  </div>
+</div>
+
+<pre id="errorOverlay"></pre>
+
+<!-- phones in portrait: the table is landscape-only -->
+<div class="rotate-card" aria-live="polite">
+  <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="20" y="6" width="24" height="52" rx="5" fill="none" stroke="#d6b062" stroke-width="3"/><circle cx="32" cy="51" r="2.2" fill="#d6b062"/></svg>
+  <b>Turn your phone sideways</b>
+  <span>The craps table plays in landscape.</span>
+</div>
+
+<script>
+  // installed web app: offline cache (sw.js only exists in the built dist/, so the local dev server just skips this)
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () { });
+</script>
+
+<script type="module" src="./src/main.js" onerror="window.__showError && window.__showError('Failed to load src/main.js (module error or 404)')"></script>
+<script type="module" src="./src/ui.js" onerror="window.__showError && window.__showError('Failed to load src/ui.js')"></script>
+</body>
+</html>

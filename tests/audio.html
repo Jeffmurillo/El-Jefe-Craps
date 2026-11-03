@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio Engine Test</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0d0c; color: #ddd; font: 16px/1.5 system-ui, sans-serif; }
+  .pad { position: fixed; bottom: 16px; left: 16px; right: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  button { background: #1d3a2a; color: #e8f5e9; border: 1px solid #3a6; border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<!-- Audio test bench: open via the server with ?audiotest=1 for diagnostics; buttons audition every sound. -->
+<div class="pad" id="pad"></div>
+<script type="module">
+  import { AudioEngine } from '../src/audio.js';
+  const a = new AudioEngine();
+  window.audio = a;
+  const sounds = {
+    'Rattle': () => a.rattle(0.38),
+    'Felt hard': () => a.diceHit('felt', 1, 0, -4),
+    'Felt soft': () => a.diceHit('felt', 0.15, 0, 4),
+    'Wall': () => a.diceHit('wall', 0.9, 0, 16),
+    'Die-die': () => a.diceHit('dice', 0.6, 0, 10),
+    'Full throw': () => { a.rattle(0.38); const seq = [[0.75,'felt',1,2],[0.82,'felt',0.6,5],[0.95,'wall',0.95,16],[0.97,'dice',0.5,15],[1.1,'felt',0.5,13],[1.18,'felt',0.3,12],[1.25,'dice',0.2,12],[1.32,'felt',0.15,11.5],[1.4,'felt',0.08,11.2]]; for (const [t,k,s,x] of seq) setTimeout(() => a.diceHit(k,s,0,x), t*1000); },
+    'Chip': () => a.chips(1),
+    'Chips x4': () => { for (let i = 0; i < 4; i++) setTimeout(() => a.chips(1), i * 50); },
+    'Payout stack': () => a.chipStack(8),
+    'Take down': () => a.chipsTake(3),
+    'Puck': () => a.puck(),
+    'Click': () => a.click(),
+    'Error': () => a.error(),
+    'Win small': () => a.win(0.1),
+    'Win medium': () => a.win(0.4),
+    'Win big': () => a.win(0.9),
+    'Point made': () => a.result({ outcome: 'point-made', totalWin: 150, net: 150 }),
+    'Natural': () => a.result({ outcome: 'natural', totalWin: 25, net: 25 }),
+    'Craps': () => a.result({ outcome: 'craps', totalWin: 0, net: -25 }),
+    'Seven out': () => a.sevenOut(),
+    'Lose': () => a.lose(),
+    'Ambience on/off': () => a.setAmbience(!a.ambienceOn),
+    'Mute': () => a.setMuted(!a.muted),
+  };
+  const pad = document.getElementById('pad');
+  for (const [k, fn] of Object.entries(sounds)) { const b = document.createElement('button'); b.textContent = k; b.onclick = () => { a.init(); fn(); }; pad.appendChild(b); }
+</script>
+</body>
+</html>
