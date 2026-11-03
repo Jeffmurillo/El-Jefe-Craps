@@ -643,3 +643,5 @@ html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent
   .rs-summary { grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 8px; }
   .rs-cell { padding: 6px 8px; } .rs-cell span { font-size: 8px; letter-spacing: 1px; margin-bottom: 4px; } .rs-cell b { font-size: 15px; } .rs-cell b small { display: none; }
 }
+/* touch screens: the table stays on the fixed top-down view, so the view-cycling button is hidden */
+@media (pointer: coarse) { #camBtn { display: none; } }

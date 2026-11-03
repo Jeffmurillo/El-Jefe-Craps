@@ -258,7 +258,20 @@
 
 <script>
   // installed web app: offline cache (sw.js only exists in the built dist/, so the local dev server just skips this)
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () { });
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    // a new deploy installs in the background while the old one is on screen; when it takes over shortly after
+    // launch, restart into it right away (between rolls) so an update shows on this launch, not the next one
+    var hadSW = !!navigator.serviceWorker.controller, t0 = Date.now();
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadSW || Date.now() - t0 > 30000) return;
+      (function go() {
+        var c = window.craps;
+        if (!c || (c.ui && c.ui.phase === 'betting' && !document.querySelector('.modal.show'))) location.reload();
+        else setTimeout(go, 1000);
+      })();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function () { });
+  }
 </script>
 
 <script type="module" src="./src/main.js" onerror="window.__showError && window.__showError('Failed to load src/main.js (module error or 404)')"></script>

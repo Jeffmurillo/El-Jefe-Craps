@@ -117,32 +117,19 @@ export class CameraRig {
     const el = this.dom;
     let down = null;
     this.dragging = false;
-    // touch: one finger orbits, two fingers pinch-zoom (the orbit is suspended until every finger lifts)
-    const touches = new Map();
-    let pinch = null;
-    const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+    // touch screens keep the fixed top-down view: no finger orbit or pinch zoom (mouse drag / wheel still work).
+    // A multi-finger touch only counts as "dragging" so it never books chips; it clears once every finger lifts.
+    const touches = new Set();
     el.style.touchAction = 'none'; // no browser scroll / page zoom over the table
     el.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'touch') {
-        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        if (touches.size === 2) { down = null; this.dragging = true; pinch = { d: spread(), zoom: this.userZoom }; return; }
-        if (touches.size > 2 || pinch) return;
-      }
+      if (e.pointerType === 'touch') { touches.add(e.pointerId); if (touches.size > 1) this.dragging = true; return; }
       if (e.button === 0) down = { x: e.clientX, y: e.clientY, yaw: this.userYaw, pitch: this.userPitch };
     });
-    const lift = (e) => {
-      if (!touches.delete(e.pointerId)) return;
-      if (pinch && touches.size === 0) { pinch = null; setTimeout(() => { this.dragging = false; }, 0); }
-    };
+    const lift = (e) => { if (touches.delete(e.pointerId) && touches.size === 0) setTimeout(() => { this.dragging = false; }, 0); };
     window.addEventListener('pointerup', lift);
     window.addEventListener('pointercancel', (e) => { lift(e); down = null; setTimeout(() => { this.dragging = false; }, 0); });
     window.addEventListener('pointermove', (e) => {
-      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pinch) {
-        if (touches.size === 2) this.userZoom = THREE.MathUtils.clamp(pinch.zoom * (pinch.d / spread()), 0.45, 1.5);
-        return;
-      }
-      if (!down) return;
+      if (!down || e.pointerType === 'touch') return;
       const dx = e.clientX - down.x, dy = e.clientY - down.y;
       if (!this.dragging && Math.hypot(dx, dy) > 6) this.dragging = true;
       if (this.dragging) {
@@ -150,13 +137,13 @@ export class CameraRig {
         this.userPitch = THREE.MathUtils.clamp(down.pitch - dy * 0.0032, -0.5, 0.42);
       }
     });
-    window.addEventListener('pointerup', () => {
-      if (pinch || touches.size) return; // mid-pinch: stay "dragging" so the last finger up doesn't book a chip
+    window.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'touch') return; // handled by lift(): a multi-finger touch stays "dragging" until all fingers are up
       // the resting-dice push holds until the player acts: a click (not a drag) eases back to the full layout
       if (down && !this.dragging && this.restLevel > 0) this.restLevel = 0;
       down = null; setTimeout(() => { this.dragging = false; }, 0);
     });
-    el.addEventListener('dblclick', () => this.resetView());
+    el.addEventListener('dblclick', (e) => { if (e.pointerType !== 'touch' && !touches.size) this.resetView(); });
     el.addEventListener('wheel', (e) => { e.preventDefault(); this.userZoom = THREE.MathUtils.clamp(this.userZoom * (e.deltaY > 0 ? 1.08 : 0.93), 0.45, 1.5); }, { passive: false });
   }
 

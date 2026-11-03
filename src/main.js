@@ -739,8 +739,8 @@ function openBetMenu(z, x, y) {
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'touch') {
-    // no hover on a touch screen: only a finger that wanders far enough cancels the long-press
-    if (lp && lp.id === e.pointerId && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 10) cancelLongPress();
+    // a finger that wanders more than 10px is a swipe, not a tap: no long-press, and lifting it books nothing
+    if (lp && lp.id === e.pointerId && !lp.moved && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 10) { clearTimeout(lp.timer); lp.moved = true; }
     return;
   }
   if (rig.dragging) { highlighter.set(null); hideTooltip(); canvas.style.cursor = 'grabbing'; return; }
@@ -765,9 +765,9 @@ window.addEventListener('keyup', (e) => onAltKey(e, false));
 window.addEventListener('blur', () => { if (lastPointer && lastPointer.altKey) { lastPointer = { ...lastPointer, altKey: false }; if (hoverZone) showTooltip(hoverZone, lastPointer); } });
 canvas.addEventListener('pointerup', (e) => {
   if (e.pointerType === 'touch') {
-    const fired = lp && lp.id === e.pointerId && lp.fired;
+    const fired = lp && lp.id === e.pointerId && (lp.fired || lp.moved);
     if (lp && lp.id === e.pointerId) cancelLongPress();
-    if (fired) return; // the long-press opened the bet menu: lifting the finger books nothing
+    if (fired) return; // a long-press (bet menu) or a swipe: lifting the finger books nothing
   }
   if (e.button !== 0 || rig.dragging) return;
   audio.init();
