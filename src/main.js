@@ -865,7 +865,7 @@ $('settingsBtn').addEventListener('click', () => $('settingsModal').classList.ad
 document.querySelectorAll('.modal').forEach((m) => m.addEventListener('click', (e) => { if (e.target === m || e.target.hasAttribute('data-close')) m.classList.remove('show'); }));
 // settings modal
 $('qualitySel').value = settings.quality;
-$('qualitySel').addEventListener('change', (e) => { store.set('quality', e.target.value); toast('Reloading with new quality…', true); setTimeout(() => location.reload(), 500); });
+$('qualitySel').addEventListener('change', (e) => { store.set('quality', e.target.value); toast('Reloading with new quality…', true); setTimeout(() => window.crapsReload ? crapsReload() : location.reload(), 500); });
 $('volRange').value = audio.volume; $('volRange').addEventListener('input', (e) => { audio.init(); audio.setVolume(Number(e.target.value)); });
 $('ambChk').checked = audio.ambienceOn; $('ambChk').addEventListener('change', (e) => { audio.init(); audio.setAmbience(e.target.checked); });
 if ($('callChk')) { $('callChk').checked = audio.callouts; $('callChk').addEventListener('change', (e) => { audio.init(); audio.setCallouts(e.target.checked); }); }
@@ -879,11 +879,11 @@ $('hardChk').checked = game.settings.hardwaysWorkingOnComeOut; $('hardChk').addE
   renderGpuInfo();
   $('updateBtn')?.addEventListener('click', async () => {
     const sw = navigator.serviceWorker;
-    if (!sw || !sw.controller) { location.reload(); return; }
+    if (!sw || !sw.controller) { (window.crapsReload || location.reload.bind(location))(); return; }
     toast('Checking for updates…', true);
     try {
       const reg = await sw.getRegistration();
-      sw.addEventListener('controllerchange', () => location.reload(), { once: true }); // the new build takes over: restart into it
+      sw.addEventListener('controllerchange', () => crapsReload(), { once: true }); // the new build takes over: restart into it
       await reg.update();
       if (!reg.installing && !reg.waiting) toast('You have the latest version', true);
     } catch { toast('Could not check for updates. Are you offline?'); }
@@ -1175,7 +1175,7 @@ function renderGpuInfo() {
   $('gpuInfo').textContent = (fixes.length ? fixes.join(', ') : 'none')
     + (lc ? ` · last failed launch: ${lc.q}, ${stageName[lc.stage] || lc.stage} (${(lc.t / 1000).toFixed(1)} s)` : '');
 }
-$('gpuReset')?.addEventListener('click', () => { store.set('gpuCaps', {}); store.set('lastCrash', null); toast('Graphics fixes cleared. Reloading…', true); setTimeout(() => location.reload(), 500); });
+$('gpuReset')?.addEventListener('click', () => { store.set('gpuCaps', {}); store.set('lastCrash', null); toast('Graphics fixes cleared. Reloading…', true); setTimeout(() => window.crapsReload ? crapsReload() : location.reload(), 500); });
 // ---------- startup: compile shaders in the background, then draw ----------
 // A first render compiles ~40 shader programs synchronously: ~6 s of a blocked GPU process on a fast desktop,
 // long enough on a phone for Android's GPU watchdog to kill Chrome. compileAsync issues them all at once and
