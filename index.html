@@ -129,6 +129,7 @@
         <div class="more-wrap">
           <button class="rbtn" id="moreBtn" data-tip="Max odds · take down · working" aria-label="More actions" aria-haspopup="true"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="18" cy="12" r="1.8" fill="currentColor"/></svg><span class="cap">More</span></button>
           <div class="more-menu" id="moreMenu" role="menu">
+            <div id="favRow" class="fav-row"></div>
             <button class="mi" id="maxOddsBtn" role="menuitem"><span class="mi-ico">⇈</span><span class="mi-txt">Max odds<em>Back every line &amp; come bet</em></span></button>
             <button class="mi" id="takeDownBtn" role="menuitem"><span class="mi-ico">▼</span><span class="mi-txt">Take down places<em>Return place, buy &amp; lay bets</em></span></button>
             <button class="mi toggle" id="workingBtn" role="menuitemcheckbox"><span class="mi-ico">◐</span><span class="mi-txt">Place bets on come-out<em>Working toggle</em></span><small id="workingState">OFF</small></button>
@@ -233,6 +234,8 @@
       <label class="row"><span>Stickman calls<em>Dealer voice calls each roll</em></span><input type="checkbox" class="switch" id="callChk"></label>
       <label class="row"><span>Win chimes<em>Off = realistic table sound (crowd &amp; chips only)</em></span><input type="checkbox" class="switch" id="chimeChk"></label>
       <label class="row"><span>Hardways working on come-out</span><input type="checkbox" class="switch" id="hardChk"></label>
+      <div class="row"><span>Table minimum<em>Smallest Pass, Field &amp; Place bet · Vegas = $25 (Strip)</em></span>
+        <div class="seg" id="tableMinSeg" role="radiogroup"><button data-v="5">$5</button><button data-v="10">$10</button><button data-v="15">$15</button><button data-v="25">Vegas</button></div></div>
       <div class="row"><span>Buy commission<em>Up front = classic 5% when booked (Buy 4/10 edge 4.76%)</em></span>
         <div class="seg" id="buyVigSeg" role="radiogroup"><button data-v="win">On win</button><button data-v="upfront">Up front</button></div></div>
       <div class="row"><span>Lay commission<em>5% of the win · on win 1.67%, up front 2.44% (Lay 4/10)</em></span>

@@ -654,3 +654,14 @@ html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent
 }
 /* the 'Phone' graphics tier is only offered on touch devices */
 @media not (pointer: coarse) { .seg .touch-only { display: none; } }
+
+/* favorites (More menu): three saved bet layouts */
+.more-menu { max-height: calc(100vh - 140px); overflow-y: auto; }
+.fav-row { display: flex; flex-direction: column; gap: 2px; padding-bottom: 4px; margin-bottom: 2px; border-bottom: 1px solid rgba(214,176,98,.18); }
+.fav-slot { display: flex; align-items: center; gap: 4px; }
+.fav-slot .mi { flex: 1; min-width: 0; }
+.fav-slot .mi[aria-disabled="true"] { opacity: .55; }
+.fav-slot .mi-txt em { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
+.fav-btn { flex: none; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(214,176,98,.35); background: rgba(214,176,98,.1); color: var(--gold-hi); font: 700 11px/1 var(--sans); letter-spacing: .5px; cursor: pointer; }
+.fav-btn:hover { background: rgba(214,176,98,.22); }
+.fav-btn.x { padding: 6px 8px; color: var(--muted); }

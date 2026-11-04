@@ -184,7 +184,7 @@ seg('speedSeg', curSpeed, (v) => {
 // ---------- settings: table rules (engine settings, applied via game.setSettings -> sanitizeSettings) ----------
 // Saved with the game (serialize) and as craps.tableRules, which main.js re-applies at boot.
 (function tableRules() {
-  const RULES = [['buyVigSeg', 'buyVig', String], ['layVigSeg', 'layVig', String], ['buyMinSeg', 'buyMin', Number], ['layMinSeg', 'layMin', Number], ['roundUpSeg', 'roundUpMax', Number]];
+  const RULES = [['tableMinSeg', 'tableMin', Number], ['buyVigSeg', 'buyVig', String], ['layVigSeg', 'layVig', String], ['buyMinSeg', 'buyMin', Number], ['layMinSeg', 'layMin', Number], ['roundUpSeg', 'roundUpMax', Number]];
   const ready = () => new Promise((res) => { const t = () => (window.craps?.game ? res(window.craps) : setTimeout(t, 50)); t(); });
   ready().then((c) => {
     for (const [el, key, conv] of RULES) {
@@ -192,7 +192,7 @@ seg('speedSeg', curSpeed, (v) => {
         const r = c.game.setSettings({ [key]: conv(v) });
         const saved = store.get('tableRules', {}); saved[key] = r.settings[key]; store.set('tableRules', saved);
         const refunded = r.refunds.reduce((a, x) => a + x.vig, 0);
-        try { c.persist?.(); c.updateHUD?.(); if (refunded) c.toast?.(`$${refunded} prepaid commission refunded`, true); } catch { }
+        try { c.persist?.(); c.updateHUD?.(); if (refunded) c.toast?.(`$${refunded} prepaid commission refunded`, true); else if (key === 'tableMin') c.toast?.(`Table minimum is now $${r.settings.tableMin}`, true); } catch { }
       });
     }
   });

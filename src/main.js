@@ -549,24 +549,77 @@ function regressPlaces() {
 function clearAll() { let any = false; for (const id of Object.keys(game.bets)) if (game.canRemove(id).ok) any = takeDown(id, { silent: true }) || any; if (!any) toast('Nothing removable — line & come bets are contract bets', true); }
 function rebet() {
   if (!ui.lastBets || ui.phase !== 'betting') return;
+  applyLayout(ui.lastBets, 'Rebet');
+}
+/** Book a saved bet layout (rebet or a favorite): tops each bet up to the saved amount for the current point. */
+function applyLayout(snapshot, label) {
+  if (ui.phase !== 'betting') { toast('No more bets — dice are rolling'); return false; }
   // the engine re-books each bet for the CURRENT point in payable units (odds from an old 5 behind a new 6 …),
   // never rebets a line bet as a Put, and keeps money pending on other bets out of reach
-  const plan = game.rebetPlan(ui.lastBets, pendingTotal());
+  const plan = game.rebetPlan(snapshot, pendingTotal());
   // placeOn can still refuse a planned bet (bankroll race, up-front commission): collect those, and only list
   // re-booked amounts for bets that actually went down
   const placed = new Set(), failed = [];
   for (const [id, add] of plan.plan) { if (placeOn(id, add, { silent: true })) placed.add(id); else failed.push(id); }
-  const skipPass = plan.skipped.some((x) => x.id === 'pass'), skipDont = plan.skipped.some((x) => x.id === 'dontPass');
+  const skipPass = plan.skipped.some((x) => x.id === 'pass' && /^point is on/.test(x.reason)), skipDont = plan.skipped.some((x) => x.id === 'dontPass' && /^point is on/.test(x.reason));
   // one toast carrying every message, so a skipped line bet never hides the re-booked amounts
   const msgs = [];
   const rounded = plan.rounded.filter((x) => placed.has(x.id));
-  if (rounded.length) msgs.push('Rebet — ' + rounded.map((x) => `${game.betInfo(x.id).name} ${fmt(x.from)} → ${fmt(x.to)}`).join(', ') + ' (re-booked in payable units)');
+  if (rounded.length) msgs.push(label + ' — ' + rounded.map((x) => `${game.betInfo(x.id).name} ${fmt(x.from)} → ${fmt(x.to)}`).join(', ') + ' (re-booked in payable units)');
   if (failed.length) msgs.push(`Not rebet (insufficient bankroll): ${failed.map((id) => game.betInfo(id).name).join(', ')}`);
   if (skipPass) msgs.push('Pass Line not rebet — the point is on. Click the Pass Line to make a Put bet.');
   if (skipDont) msgs.push("Don't Pass not rebet — it is closed once the point is on (Don't Come is open).");
+  if (label !== 'Rebet') {
+    // favorites: also say what went down, and why anything else did not (e.g. under a higher table minimum)
+    const other = plan.skipped.filter((x) => !/^point is on|no (odds )?room|flat bet/.test(x.reason));
+    if (other.length) msgs.push(other.map((x) => `${game.betInfo(x.id).name}: ${x.reason}`).join(' · '));
+    const sum = plan.plan.filter(([id]) => placed.has(id)).reduce((a, [, add]) => a + add, 0);
+    msgs.unshift(sum ? `${label} — ${fmt(sum)} booked` : plan.skipped.length || failed.length ? `${label} — nothing booked` : `${label} is already on the table`);
+  }
   if (msgs.length) toast(msgs.join(' · '), true);
   if (failed.length) audio.error();
+  return placed.size > 0;
 }
+
+// ---------- favorites: three saved bet layouts (More menu), kept on this device ----------
+const FAV_SLOTS = 3;
+const favs = (() => { const v = store.get('favorites', []); return Array.from({ length: FAV_SLOTS }, (_, i) => (v && v[i] && typeof v[i] === 'object' ? v[i] : null)); })();
+const SHORT = (id) => game.betInfo(id).name.replace(/^Place /, 'P').replace(/^Hard /, 'H').replace(/^Pass Line Odds$/, 'Odds').replace(/^Pass Line$/, 'Pass').replace(/ (.*)$/, '');
+function favSummary(f) {
+  const ids = Object.keys(f.bets);
+  const total = Object.values(f.bets).reduce((a, b) => a + b, 0);
+  const shown = ids.slice(0, 4).map(SHORT).join(' · ') + (ids.length > 4 ? ` +${ids.length - 4}` : '');
+  return `${fmt(total)} — ${shown}`;
+}
+function renderFavs() {
+  const row = $('favRow'); if (!row) return;
+  row.innerHTML = favs.map((f, i) => `<div class="fav-slot"><button class="mi fav-use" data-fav="${i}" ${f ? '' : 'aria-disabled="true"'}><span class="mi-ico">★</span><span class="mi-txt">Favorite ${i + 1}<em>${f ? favSummary(f) : 'Empty — set up your bets, then Save'}</em></span></button>`
+    + `<button class="fav-btn" data-fav-save="${i}" title="Save the bets on the table as Favorite ${i + 1}">Save</button>`
+    + (f ? `<button class="fav-btn x" data-fav-clear="${i}" title="Clear Favorite ${i + 1}" aria-label="Clear Favorite ${i + 1}">✕</button>` : '') + '</div>').join('');
+}
+/** A favorite saved at a lower table minimum: each bet below today's minimum goes up to it (odds are left alone). */
+function atTableMin(bets) {
+  const out = {};
+  for (const [id, a] of Object.entries(bets)) out[id] = /Odds/.test(id) ? a : Math.max(a, game.minFor(id));
+  return out;
+}
+function saveFav(i) {
+  // same rules as Rebet: come bets that traveled (and their odds) are not part of a layout
+  const bets = {};
+  for (const [id, a] of Object.entries(game.bets)) if (!/^(come|dontCome|comeOdds|dontComeOdds)d/.test(id)) bets[id] = a;
+  if (!Object.keys(bets).length) { toast('Put the bets you want on the table first, then tap Save', true); return; }
+  const had = !!favs[i];
+  favs[i] = { bets, at: Date.now() }; store.set('favorites', favs); renderFavs();
+  toast(`Favorite ${i + 1} ${had ? 'replaced' : 'saved'} — ${favSummary(favs[i])}`, true);
+}
+$('favRow')?.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  audio.init(); audio.click?.();
+  if (b.dataset.favSave != null) saveFav(Number(b.dataset.favSave));
+  else if (b.dataset.favClear != null) { const i = Number(b.dataset.favClear); favs[i] = null; store.set('favorites', favs); renderFavs(); toast(`Favorite ${i + 1} cleared`, true); }
+  else if (b.dataset.fav != null) { const f = favs[Number(b.dataset.fav)]; if (!f) toast('Empty slot — set up your bets, then tap Save', true); else applyLayout(atTableMin(f.bets), `Favorite ${Number(b.dataset.fav) + 1}`); }
+});
+renderFavs();
 
 // ---------- rolling ----------
 function snapshotBets() {
