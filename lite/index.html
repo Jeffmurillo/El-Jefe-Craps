@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b2a1c">
+<meta name="app-version" content="dev">
+<meta name="mobile-web-app-capable" content="yes">
+<title>El Jefe Craps Lite</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="lite.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="stat"><span>Bankroll</span><b id="bank">$1,000</b></div>
+    <div class="stat"><span>On table</span><b id="onTable">$0</b></div>
+    <button class="stat session" id="sessionBtn" title="Session history"><span>Session</span><b id="sessionNet">$0</b></button>
+    <div class="status" id="status">Come-out roll — place your bets</div>
+    <button class="hist" id="histStrip" title="Roll history" aria-label="Roll history"></button>
+    <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">⚙</button>
+  </header>
+
+  <main class="felt-wrap">
+    <svg id="felt" viewBox="0 0 1000 380" preserveAspectRatio="xMidYMid meet" aria-label="Craps table"></svg>
+    <div class="dice-tray" id="diceTray" aria-live="polite">
+      <div class="die" id="d1"></div><div class="die" id="d2"></div>
+    </div>
+    <div class="callout" id="callout"></div>
+  </main>
+
+  <footer class="dock">
+    <div class="chips" id="chips"></div>
+    <div class="tools">
+      <button class="tbtn" id="undoBtn" title="Undo last bet">↶<small>Undo</small></button>
+      <button class="tbtn" id="clearBtn" title="Take down every bet that can come down">✕<small>Clear</small></button>
+      <button class="tbtn" id="downBtn" title="Take-down mode: tap a bet to remove it" aria-pressed="false">✋<small>Remove</small></button>
+      <button class="tbtn" id="oddsBtn" title="Max odds behind the Pass Line and every Come bet">⇧<small>Odds</small></button>
+      <button class="tbtn" id="rebetBtn" title="Put last roll's bets back">⟲<small>Rebet</small></button>
+      <button class="tbtn" id="quickBtn" title="Quick bets: Across, Inside, Hardways …">⚡<small>Quick</small></button>
+    </div>
+    <div class="favs" id="favs"></div>
+    <button class="roll" id="rollBtn">ROLL</button>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<div class="sheet" id="quickSheet" hidden>
+  <div class="sheet-card">
+    <div class="sheet-head"><b>Quick bets</b><span class="sheet-sub" id="quickSub"></span><button class="x" data-close>✕</button></div>
+    <div class="qgrid" id="groupGrid"></div>
+    <h4>Hop bets <small>one roll · easy 15:1 · hard 30:1</small></h4>
+    <div class="qgrid hops" id="hopGrid"></div>
+    <h4>Side bets <small>must go up before the shooter's first roll / right after a 7</small></h4>
+    <div class="qgrid" id="sideGrid"></div>
+  </div>
+</div>
+
+<div class="sheet" id="settingsSheet" hidden>
+  <div class="sheet-card">
+    <div class="sheet-head"><b>Settings</b><button class="x" data-close>✕</button></div>
+    <div class="row"><label>Table minimum</label><div class="seg" id="segMin" data-key="tableMin"><button data-v="5">$5</button><button data-v="10">$10</button><button data-v="15">$15</button><button data-v="25" title="Vegas Strip: $25">Vegas $25</button></div></div>
+    <div class="row"><label>Odds</label><div class="seg" id="segOdds" data-key="odds"><button data-v="345">3-4-5×</button><button data-v="2">2×</button><button data-v="5">5×</button><button data-v="10">10×</button><button data-v="100">100×</button></div></div>
+    <div class="row"><label>Field 12 pays</label><div class="seg" id="segField" data-key="fieldTwelvePays"><button data-v="3">3 to 1</button><button data-v="2">2 to 1</button></div></div>
+    <div class="row"><label>Place bets on the come-out</label><div class="seg" id="segWork" data-key="placeWorkingOnComeOut"><button data-v="false">Off</button><button data-v="true">Working</button></div></div>
+    <div class="row"><label>Dice</label><div class="seg" id="segSpeed" data-pref="speed"><button data-v="normal">Normal</button><button data-v="fast">Fast</button><button data-v="instant">Instant</button></div></div>
+    <div class="row"><label>Sound</label><div class="seg" id="segSound" data-pref="sound"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+    <div class="row"><label>New session</label><div class="seg"><button id="reset1k">$1,000</button><button id="reset5k">$5,000</button><button id="reset25k">$25,000</button></div></div>
+    <p class="fine">Tap a bet to add the selected chip · hold a bet (or use Remove) to take it down · hold a ★ to replace or clear it.<br>
+      <a href="../">Open the full 3D table</a> · <span id="ver"></span></p>
+  </div>
+</div>
+
+<div class="sheet" id="histSheet" hidden>
+  <div class="sheet-card">
+    <div class="sheet-head"><b>Session</b><span class="sheet-sub" id="histSub"></span><button class="x" data-close>✕</button></div>
+    <div class="hstats" id="histStats"></div>
+    <div class="hlist" id="histList"></div>
+  </div>
+</div>
+
+<div class="sheet" id="favSheet" hidden>
+  <div class="sheet-card small">
+    <div class="sheet-head"><b id="favTitle">Favorite</b><button class="x" data-close>✕</button></div>
+    <p id="favDesc" class="fine"></p>
+    <div class="seg wide"><button id="favReplace">Save table here</button><button id="favClear">Clear</button></div>
+  </div>
+</div>
+
+<div class="rotate-card"><b>Turn your phone sideways</b><span>The table plays in landscape.</span></div>
+
+<script>
+  // offline / installable: sw.js only exists in the built dist/. A new deploy takes over in the background; restart
+  // into it only between rolls and with no sheet open, and only right after launch (never mid-session).
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    var hadSW = !!navigator.serviceWorker.controller, t0 = Date.now();
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadSW || Date.now() - t0 > 30000) return;
+      (function go() {
+        var c = window.lite;
+        if (c && !c.busy() && !document.querySelector('.sheet:not([hidden])')) location.reload();
+        else setTimeout(go, 1000);
+      })();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function () { });
+  }
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

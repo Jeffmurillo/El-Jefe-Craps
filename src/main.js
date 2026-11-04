@@ -606,7 +606,7 @@ function atTableMin(bets) {
 function saveFav(i) {
   // same rules as Rebet: come bets that traveled (and their odds) are not part of a layout
   const bets = {};
-  for (const [id, a] of Object.entries(game.bets)) if (!/^(come|dontCome|comeOdds|dontComeOdds)d/.test(id)) bets[id] = a;
+  for (const [id, a] of Object.entries(game.bets)) if (!/^(come|dontCome|comeOdds|dontComeOdds)\d/.test(id)) bets[id] = a;
   if (!Object.keys(bets).length) { toast('Put the bets you want on the table first, then tap Save', true); return; }
   const had = !!favs[i];
   favs[i] = { bets, at: Date.now() }; store.set('favorites', favs); renderFavs();
