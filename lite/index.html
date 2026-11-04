@@ -36,9 +36,9 @@
       <button class="tbtn" id="undoBtn" title="Undo last bet">↶<small>Undo</small></button>
       <button class="tbtn" id="clearBtn" title="Take down every bet that can come down">✕<small>Clear</small></button>
       <button class="tbtn" id="downBtn" title="Take-down mode: tap a bet to remove it" aria-pressed="false">✋<small>Remove</small></button>
-      <button class="tbtn" id="oddsBtn" title="Max odds behind the Pass Line and every Come bet">⇧<small>Odds</small></button>
+      <button class="tbtn" id="oddsBtn" title="Odds behind the Pass Line and every Come bet · hold to change the size"><span class="om">MAX</span><small>Odds</small></button>
       <button class="tbtn" id="rebetBtn" title="Put last roll's bets back">⟲<small>Rebet</small></button>
-      <button class="tbtn" id="pressBtn" title="Press: double your last bet — or, after a roll, every winner still up">2×<small>Press</small></button>
+      <button class="tbtn" id="pressBtn" title="Press: double your last bet — or, after a roll, every winner still up">⇈<small>Press</small></button>
       <button class="tbtn" id="regressBtn" title="Regress: cut every place bet in half (not below the minimum)">½<small>Regress</small></button>
       <button class="tbtn" id="quickBtn" title="Quick bets: Across, Inside, Hardways …">⚡<small>Quick</small></button>
     </div>
@@ -53,6 +53,8 @@
   <div class="sheet-card">
     <div class="sheet-head"><b>Quick bets</b><span class="sheet-sub" id="quickSub"></span><button class="x" data-close>✕</button></div>
     <div class="qgrid" id="groupGrid"></div>
+    <h4>Auto-play <small>places the bets and rolls for you · the Odds button size is used · stops between hands at your limit · tap STOP any time</small></h4>
+    <div class="qgrid autog" id="autoGrid"></div>
     <h4>Hop bets <small>one roll · easy 15:1 · hard 30:1</small></h4>
     <div class="qgrid hops" id="hopGrid"></div>
     <h4>Side bets <small>must go up before the shooter's first roll / right after a 7</small></h4>
@@ -65,12 +67,13 @@
     <div class="sheet-head"><b>Settings</b><button class="x" data-close>✕</button></div>
     <div class="row"><label>Table minimum</label><div class="seg" id="segMin" data-key="tableMin"><button data-v="5">$5</button><button data-v="10">$10</button><button data-v="15">$15</button><button data-v="25" title="Vegas Strip: $25">Vegas $25</button></div></div>
     <div class="row"><label>Odds</label><div class="seg" id="segOdds" data-key="odds"><button data-v="345">3-4-5×</button><button data-v="2">2×</button><button data-v="5">5×</button><button data-v="10">10×</button><button data-v="100">100×</button></div></div>
+    <div class="row"><label>Odds button adds</label><div class="seg" id="segOddsMult" data-pref="oddsMult"><button data-v="1">1×</button><button data-v="2">2×</button><button data-v="max">Max</button></div></div>
     <div class="row"><label>Field 12 pays</label><div class="seg" id="segField" data-key="fieldTwelvePays"><button data-v="3">3 to 1</button><button data-v="2">2 to 1</button></div></div>
     <div class="row"><label>Place bets on the come-out</label><div class="seg" id="segWork" data-key="placeWorkingOnComeOut"><button data-v="false">Off</button><button data-v="true">Working</button></div></div>
     <div class="row"><label>Dice</label><div class="seg" id="segSpeed" data-pref="speed"><button data-v="normal">Normal</button><button data-v="fast">Fast</button><button data-v="instant">Instant</button></div></div>
     <div class="row"><label>Sound</label><div class="seg" id="segSound" data-pref="sound"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
     <div class="row"><label>New session</label><div class="seg"><button id="reset1k">$1,000</button><button id="reset5k">$5,000</button><button id="reset25k">$25,000</button></div></div>
-    <p class="fine">Tap a bet to add the selected chip · hold a bet (or use Remove) to take it down · hold a ★ to replace or clear it.<br>
+    <p class="fine">Tap a bet to add the selected chip · hold a bet (or use Remove) to take it down · hold a ★ to replace or clear it · hold Odds to switch 1× / 2× / Max.<br>
       <a href="../">Open the full 3D table</a> · <span id="ver"></span></p>
   </div>
 </div>

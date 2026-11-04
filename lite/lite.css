@@ -169,3 +169,11 @@ button:disabled { opacity: .4; cursor: default; }
   .rotate-card b { font-size: 20px; color: var(--gold); }
 }
 #felt .uline { fill: var(--ink); pointer-events: none; }
+
+/* odds-size label, auto-play */
+.tbtn .om { font-size: 13px; font-weight: 800; color: var(--gold); letter-spacing: .02em; }
+.roll.stop { background: linear-gradient(#3a6fd8, #1d3f8f); animation: autoPulse 1.6s ease-in-out 3; }
+@keyframes autoPulse { 50% { filter: brightness(1.25); } }
+.qgrid.autog { grid-template-columns: repeat(3, 1fr); }
+.qb.auto b { color: var(--gold); }
+.auto-lim { grid-column: 1 / -1; justify-content: center; margin-top: 2px; }

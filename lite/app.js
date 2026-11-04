@@ -15,7 +15,7 @@ const signed = (n) => (n > 0 ? '+' : '') + fmt(n);
 const esc = (s) => String(s).split('&').join('&amp;').split('<').join('&lt;');
 
 // ---------- state ----------
-const prefs = { speed: 'normal', sound: 'on', chip: 5, ...store.get('prefs', {}) };
+const prefs = { speed: 'normal', sound: 'on', chip: 5, oddsMult: 'max', autoLimit: '250/300', ...store.get('prefs', {}) };
 let game = (() => { const s = store.get('game', null); try { return s ? CrapsGame.restore(s) : new CrapsGame({ bankroll: 1000 }); } catch (e) { return new CrapsGame({ bankroll: 1000 }); } })();
 let session = store.get('session', null) || { start: game.totalValue() };
 let lastBets = store.get('last', null);
@@ -28,7 +28,7 @@ const FAV_SLOTS = 3;
 const favs = (() => { const v = store.get('favs', []); return Array.from({ length: FAV_SLOTS }, (_, i) => (v && v[i] && typeof v[i] === 'object' && v[i].bets ? v[i] : null)); })();
 let saveT = 0;
 function persist() { clearTimeout(saveT); saveT = setTimeout(() => { store.set('game', game.serialize()); store.set('session', session); store.set('last', lastBets); }, 250); }
-window.lite = { busy: () => rolling, game: () => game };
+window.lite = { busy: () => rolling || !!auto, game: () => game, auto: () => auto };
 
 // ---------- sound: a few synthesized blips; the context sleeps when idle ----------
 const sound = {
@@ -250,7 +250,7 @@ function renderHUD() {
   st.innerHTML = esc(base) + (lastNet != null && lastNet !== 0 ? ` <span class="${lastNet > 0 ? 'pos' : 'neg'}">${lastNet > 0 ? 'won' : 'lost'} ${fmt(Math.abs(lastNet))}</span>` : '');
   const h = game.history.slice(-9);
   $('histStrip').innerHTML = h.map((r) => `<i class="${r.total === 7 ? 'r7' : r.outcome === 'point-made' ? 'rp' : r.outcome === 'natural' ? 'rn' : ''}">${r.total}</i>`).join('') || '<em>no rolls</em>';
-  $('rollBtn').disabled = rolling;
+  const rb = $('rollBtn'); rb.disabled = rolling && !auto; rb.textContent = auto ? 'STOP' : 'ROLL'; rb.classList.toggle('stop', !!auto);
   $('undoBtn').disabled = !undo.length;
   $('rebetBtn').disabled = !lastBets;
   $('regressBtn').disabled = rolling || !Object.keys(game.bets).some((id) => /^place\d+$/.test(id));
@@ -346,21 +346,94 @@ function clearAll() {
   renderTable(); persist();
 }
 
-function maxOdds() {
-  if (rolling) return;
-  const flats = [['pass', 'passOdds'], ['dontPass', 'dontPassOdds'], ...POINTS.flatMap((n) => [['come' + n, 'comeOdds' + n], ['dontCome' + n, 'dontComeOdds' + n]])];
-  let sum = 0, any = false; begin();
-  for (const [f, o] of flats) {
-    if (!game.bets[f] || (o.endsWith('Odds') && (f === 'pass' || f === 'dontPass') && !game.point)) continue;
-    any = true;
-    const add = game.maxOddsAdd(o); if (add <= 0) continue;
-    if (game.placeBet(o, add).ok) { record(o, add); sum += add; }
-  }
-  end();
-  if (!any) { toast(game.point ? 'No line or come bets to back with odds' : 'Odds open once a point is set'); return; }
-  if (!sum) { toast('Odds are already at the maximum (or the rack is empty)', true); return; }
-  sound.chip(); toast(`Max odds — ${fmt(sum)} added`, true); renderTable(); persist();
+// Odds button size: 1x / 2x the flat bet, or the table maximum. Lay odds are sized by the win (1x = the lay wins the flat).
+const ODDS_MULTS = ['1', '2', 'max'];
+const oddsMultLabel = (m = prefs.oddsMult) => (m === 'max' ? 'Max' : m + '×');
+const LAY_RATIO = { 4: 2, 10: 2, 5: 1.5, 9: 1.5, 6: 1.2, 8: 1.2 };
+/** How much to add behind one flat bet to bring its odds up to the chosen size (0 if already there). */
+function oddsAddFor(flat, oddsId, num, mult = prefs.oddsMult) {
+  const cap = game.maxOddsAdd(oddsId); if (cap <= 0) return 0;
+  if (mult === 'max') return cap;
+  const u = game.unitFor(oddsId), cur = game.amount(oddsId), lay = oddsId.startsWith('dont');
+  const target = Math.ceil((game.amount(flat) * Number(mult) * (lay ? LAY_RATIO[num] : 1)) / u - 1e-9) * u;
+  return Math.max(0, Math.min(cap, target - cur));
 }
+function oddsTargets() {
+  const out = [];
+  if (game.point) for (const f of ['pass', 'dontPass']) if (game.bets[f]) out.push([f, f + 'Odds', game.point]);
+  for (const n of POINTS) for (const f of ['come', 'dontCome']) if (game.bets[f + n]) out.push([f + n, f + 'Odds' + n, n]);
+  return out;
+}
+function maxOdds({ quiet = false } = {}) {
+  if (rolling) return 0;
+  const t = oddsTargets(); let sum = 0;
+  if (!quiet) begin();
+  for (const [f, o, n] of t) {
+    const add = oddsAddFor(f, o, n); if (add <= 0) continue;
+    if (game.placeBet(o, add).ok) { if (!quiet) record(o, add); sum += add; }
+  }
+  if (quiet) return sum;
+  end();
+  if (!t.length) { toast(game.point ? 'No line or come bets to back with odds' : 'Odds open once a point is set'); return 0; }
+  if (!sum) { toast(`Odds are already at ${oddsMultLabel()} (or the rack is empty)`, true); return 0; }
+  sound.chip(); toast(`${oddsMultLabel()} odds — ${fmt(sum)} added`, true); renderTable(); persist();
+  return sum;
+}
+function renderOddsBtn() {
+  const m = prefs.oddsMult, b = $('oddsBtn');
+  b.innerHTML = `<span class="om">${m === 'max' ? 'MAX' : m + '×'}</span><small>Odds</small>`;
+  b.title = `Add ${m === 'max' ? 'maximum' : m + '×'} odds behind the Pass Line and every Come bet · hold to change`;
+}
+function cycleOddsMult() {
+  prefs.oddsMult = ODDS_MULTS[(ODDS_MULTS.indexOf(prefs.oddsMult) + 1) % ODDS_MULTS.length];
+  store.set('prefs', prefs); renderOddsBtn(); syncSegs(); sound.click(0, 3000);
+  toast(`Odds button now adds ${prefs.oddsMult === 'max' ? 'maximum (3-4-5×)' : prefs.oddsMult + '×'} odds`, true);
+}
+
+// ---------- auto-play: runs a line-bet strategy for you and stops at the walk-away limits ----------
+const AUTO = {
+  molly3: { label: '3-Point Molly', sub: 'Pass + 2 Come', comes: 2 },
+  molly2: { label: '2-Point Molly', sub: 'Pass + 1 Come', comes: 1 },
+  pass: { label: 'Pass + odds', sub: 'Pass Line only', comes: 0 },
+};
+const LIMITS = { '250/300': [250, 300], '300/400': [300, 400], '500/500': [500, 500], none: [0, 0] };
+let auto = null;   // { key, start, win, loss, t }
+function autoBets() {
+  const s = AUTO[auto.key], min = game.settings.tableMin;
+  if (!game.point) { if (!game.bets.pass && !(game.validate('pass', min).ok && game.placeBet('pass', min).ok)) return false; }
+  else {
+    const comes = POINTS.filter((n) => game.bets['come' + n]).length;
+    if (comes < s.comes && !game.bets.come && game.validate('come', min).ok) game.placeBet('come', min);
+    maxOdds({ quiet: true });
+  }
+  return true;
+}
+function autoStep() {
+  if (!auto) return;
+  if (rolling) { auto.t = setTimeout(autoStep, 200); return; }
+  const net = game.totalValue() - auto.start;
+  if (!game.point) {
+    if (auto.win && net >= auto.win) return stopAuto(`Goal reached: ${signed(net)}. Walk away a winner!`, true);
+    if (auto.loss && net <= -auto.loss) return stopAuto(`Stop-loss hit: ${signed(net)}. Time for a break.`);
+  }
+  if (!autoBets()) return stopAuto('Auto-play stopped: not enough chips for the Pass Line');
+  renderTable(); roll();
+}
+function startAuto(key) {
+  if (rolling) return;
+  const [win, loss] = LIMITS[prefs.autoLimit] || LIMITS['250/300'];
+  auto = { key, start: game.totalValue(), win, loss, t: 0 };
+  closeSheets(); removeMode && setRemove(false);
+  toast(`Auto-play: ${AUTO[key].label} · ${oddsMultLabel()} odds${win ? ` · +${fmt(win)} / −${fmt(loss)}` : ''}`, true);
+  renderHUD(); autoStep();
+}
+function stopAuto(msg, ok) {
+  if (!auto) return;
+  clearTimeout(auto.t); auto = null;
+  renderHUD();
+  if (msg) toast(msg + (POINTS.some((n) => game.bets['come' + n]) ? ' (your Come bets are still working)' : ''), ok);
+}
+const autoDelay = () => (prefs.speed === 'instant' ? 350 : prefs.speed === 'fast' ? 900 : 1700);
 
 // ---------- group bets (Across, Inside, Hardways …): the selected chip is the unit ----------
 const GROUPS = [
@@ -521,6 +594,7 @@ function settle([a, b]) {
   if (r.net > 0) sound.win(); else if (r.net < 0) sound.lose();
   if (game.bankroll <= 0 && game.totalOnTable() === 0) toast('Out of chips — start a new session in Settings');
   persist();
+  if (auto) { clearTimeout(auto.t); auto.t = setTimeout(autoStep, autoDelay()); }
 }
 
 // ---------- sheets ----------
@@ -531,14 +605,18 @@ for (const s of document.querySelectorAll('.sheet')) s.addEventListener('click',
 function openQuick() {
   $('quickSub').textContent = `${fmt(prefs.chip)} chip · table minimum ${fmt(game.settings.tableMin)}`;
   $('groupGrid').innerHTML = GROUPS.map((g) => { const p = groupPlan(g); return `<button class="qb" data-group="${g.key}"><b>${g.label}</b><small>${g.sub}</small><em>${p.plan.length ? fmt(p.total) : '—'}</em></button>`; }).join('')
-    + `<button class="qb" data-act="odds"><b>Max odds</b><small>line & come bets</small></button><button class="qb" data-act="regress"><b>Regress</b><small>halve place bets</small></button><button class="qb" data-act="down"><b>Places down</b><small>take down all boxes</small></button>`;
+    + `<button class="qb" data-act="odds"><b>${oddsMultLabel()} odds</b><small>line & come bets</small></button><button class="qb" data-act="regress"><b>Regress</b><small>halve place bets</small></button><button class="qb" data-act="down"><b>Places down</b><small>take down all boxes</small></button>`;
   $('hopGrid').innerHTML = HOP_IDS.map((id) => `<button class="qb hop ${id[3] === id[4] ? 'hard' : ''}" data-bet="${id}">${id[3]}-${id[4]}${game.bets[id] ? `<em>${fmt(game.bets[id])}</em>` : ''}</button>`).join('');
   $('sideGrid').innerHTML = [['big6', 'Big 6', '1:1'], ['big8', 'Big 8', '1:1'], ['world', 'World', '$5 units'], ['fire', 'Fire Bet', 'new shooter'], ['small', 'Small', '34:1'], ['tall', 'Tall', '34:1'], ['all', 'All', '175:1']]
     .map(([id, t, s]) => `<button class="qb" data-bet="${id}"><b>${t}</b><small>${s}</small>${game.bets[id] ? `<em>${fmt(game.bets[id])}</em>` : ''}</button>`).join('');
+  $('autoGrid').innerHTML = Object.entries(AUTO).map(([k, s]) => `<button class="qb auto" data-auto="${k}"><b>▶ ${s.label}</b><small>${s.sub} · ${oddsMultLabel()} odds</small></button>`).join('')
+    + `<div class="seg auto-lim">${Object.keys(LIMITS).map((k) => `<button data-lim="${k}" class="${prefs.autoLimit === k ? 'on' : ''}">${k === 'none' ? 'No limit' : `+$${k.split('/')[0]} / −$${k.split('/')[1]}`}</button>`).join('')}</div>`;
   openSheet('quickSheet');
 }
 $('quickSheet').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || b.dataset.close != null) return;
+  if (b.dataset.auto) { startAuto(b.dataset.auto); return; }
+  if (b.dataset.lim) { prefs.autoLimit = b.dataset.lim; store.set('prefs', prefs); openQuick(); return; }
   if (b.dataset.group) { if (placeGroup(GROUPS.find((g) => g.key === b.dataset.group))) closeSheets(); }
   else if (b.dataset.act === 'odds') { closeSheets(); maxOdds(); }
   else if (b.dataset.act === 'regress') { closeSheets(); regress(); }
@@ -571,7 +649,7 @@ function syncSegs() {
 $('settingsSheet').addEventListener('click', (e) => {
   const b = e.target.closest('.seg button'); if (!b) return;
   const seg = b.parentElement;
-  if (seg.dataset.pref) { prefs[seg.dataset.pref] = b.dataset.v; store.set('prefs', prefs); syncSegs(); if (seg.dataset.pref === 'sound' && b.dataset.v === 'on') sound.chip(); return; }
+  if (seg.dataset.pref) { prefs[seg.dataset.pref] = b.dataset.v; store.set('prefs', prefs); syncSegs(); if (seg.dataset.pref === 'sound' && b.dataset.v === 'on') sound.chip(); if (seg.dataset.pref === 'oddsMult') renderOddsBtn(); return; }
   if (seg.dataset.key) {
     if (rolling) return;
     const k = seg.dataset.key, raw = b.dataset.v;
@@ -598,10 +676,11 @@ function renderChips() {
   $('chips').innerHTML = CHIPS.map((c) => `<button class="rchip ${chipCls(c)} ${c === prefs.chip ? 'sel' : ''}" data-chip="${c}" aria-label="$${c} chip">${chipLbl(c)}</button>`).join('');
 }
 $('chips').addEventListener('click', (e) => { const b = e.target.closest('[data-chip]'); if (!b) return; prefs.chip = Number(b.dataset.chip); store.set('prefs', prefs); renderChips(); sound.click(0, 3000); });
-$('rollBtn').onclick = () => { removeMode && setRemove(false); roll(); };
+$('rollBtn').onclick = () => { if (auto) { stopAuto('Auto-play stopped', true); return; } removeMode && setRemove(false); roll(); };
 $('undoBtn').onclick = undoLast;
 $('clearBtn').onclick = clearAll;
-$('oddsBtn').onclick = maxOdds;
+pressable($('oddsBtn').parentElement, '#oddsBtn', () => maxOdds(), cycleOddsMult);
+renderOddsBtn();
 $('rebetBtn').onclick = () => { if (lastBets) applyLayout(lastBets, 'Rebet'); };
 $('regressBtn').onclick = regress;
 $('pressBtn').onclick = press;
@@ -641,7 +720,7 @@ document.addEventListener('keydown', (e) => {
   else if ((e.ctrlKey || e.metaKey) && e.key === 'z') undoLast();
 });
 // save on the way out (the debounce might not have fired)
-document.addEventListener('visibilitychange', () => { if (document.hidden) { store.set('game', game.serialize()); store.set('session', session); store.set('last', lastBets); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { stopAuto(); store.set('game', game.serialize()); store.set('session', session); store.set('last', lastBets); } });
 
 buildFelt();
 renderChips();
