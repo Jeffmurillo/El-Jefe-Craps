@@ -20,6 +20,7 @@ let game = (() => { const s = store.get('game', null); try { return s ? CrapsGam
 let session = store.get('session', null) || { start: game.totalValue() };
 let lastBets = store.get('last', null);
 let lastNet = null;
+let lastWins = [];          // [[id, stake]] winners from the last roll that stayed up (for Press)
 let rolling = false, removeMode = false;
 const undo = [];            // stack of batches: [[id, added], ...]
 let batch = null;
@@ -253,6 +254,7 @@ function renderHUD() {
   $('undoBtn').disabled = !undo.length;
   $('rebetBtn').disabled = !lastBets;
   $('regressBtn').disabled = rolling || !Object.keys(game.bets).some((id) => /^place\d+$/.test(id));
+  $('pressBtn').disabled = rolling || !pressPlan().length;
   renderFavs();
 }
 
@@ -462,6 +464,24 @@ function openFavSheet(i) {
   openSheet('favSheet');
 }
 
+/** Press: double the bet you put down last — or, right after a roll, every winner that stayed up. One undo step. */
+function pressPlan() {
+  const top = undo[undo.length - 1];
+  if (top) return [...new Set(top.map(([id]) => id))].filter((id) => game.amount(id) > 0).map((id) => [id, game.amount(id)]);
+  return lastWins.filter(([id]) => game.amount(id) > 0).map(([id]) => [id, game.amount(id)]);
+}
+function press() {
+  if (rolling) return;
+  const plan = pressPlan();
+  if (!plan.length) { toast('Nothing to press — place a bet or win one first'); return; }
+  begin(); const done = [];
+  for (const [id, amt] of plan) if (addChip(id, amt, { quiet: true })) done.push(`${NAME(id)} ${fmt(game.amount(id))}`);
+  end();
+  if (!done.length) { toast('Couldn’t press that bet (table limit or bankroll)'); return; }
+  lastWins = [];
+  sound.chip(); toast(`Pressed — ${done.join(' · ')}`, true); renderTable(); persist();
+}
+
 // ---------- rolling ----------
 function roll() {
   if (rolling) return;
@@ -481,6 +501,7 @@ function settle([a, b]) {
   renderDice('land');
   const r = game.resolveRoll(a, b);
   lastNet = r.net;
+  lastWins = r.events.filter((e) => e.type === 'win' && !e.down).map((e) => [e.id, e.stake]);
   rolling = false;
   renderTable();
   // + / − labels over the bets that were decided
@@ -563,7 +584,7 @@ $('settingsSheet').addEventListener('click', (e) => {
 });
 function newSession(bank) {
   if (rolling) return;
-  game.reset(bank); session = { start: game.totalValue() }; lastBets = null; lastNet = null; undo.length = 0;
+  game.reset(bank); session = { start: game.totalValue() }; lastBets = null; lastNet = null; lastWins = []; undo.length = 0;
   closeSheets(); renderTable(); persist(); toast(`New session — ${fmt(bank)} in chips`, true);
 }
 $('reset1k').onclick = () => newSession(1000);
@@ -583,6 +604,7 @@ $('clearBtn').onclick = clearAll;
 $('oddsBtn').onclick = maxOdds;
 $('rebetBtn').onclick = () => { if (lastBets) applyLayout(lastBets, 'Rebet'); };
 $('regressBtn').onclick = regress;
+$('pressBtn').onclick = press;
 $('quickBtn').onclick = openQuick;
 $('settingsBtn').onclick = () => { syncSegs(); openSheet('settingsSheet'); };
 $('sessionBtn').onclick = openHistory;

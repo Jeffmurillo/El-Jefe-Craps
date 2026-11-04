@@ -93,20 +93,20 @@ button:disabled { opacity: .4; cursor: default; }
 /* dock */
 .dock { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .chips { display: flex; gap: 4px; }
-.rchip { width: 38px; height: 38px; border-radius: 50%; border: 3px dashed #fff; font-weight: 800; font-size: 12px; color: #fff; padding: 0; transition: transform .1s; }
+.rchip { width: 34px; height: 34px; border-radius: 50%; border: 3px dashed #fff; font-weight: 800; font-size: 11px; color: #fff; padding: 0; transition: transform .1s; }
 .rchip.c1 { background: #e9e6dc; color: #1d2b4f; border-color: #3d6fd6; }
 .rchip.c5 { background: #c8202b; } .rchip.c25 { background: #17853f; } .rchip.c100 { background: #1b1b1b; } .rchip.c500 { background: #6b2fa8; } .rchip.c1k { background: #d9861d; }
 .rchip.sel { transform: translateY(-5px); outline: 2px solid var(--gold); outline-offset: 2px; }
 .tools { display: flex; gap: 4px; }
-.tbtn { width: 40px; height: 46px; border-radius: 10px; border: 1px solid rgba(255,255,255,.13); background: #12241b; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; line-height: 1; padding: 0; }
+.tbtn { width: 38px; height: 46px; border-radius: 10px; border: 1px solid rgba(255,255,255,.13); background: #12241b; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; line-height: 1; padding: 0; }
 .tbtn small { font-size: 9px; margin-top: 3px; color: var(--dim); }
 .tbtn[aria-pressed="true"] { background: #5a1c1f; border-color: #ff8a8a; }
 .favs { display: flex; gap: 4px; margin-left: auto; }
-.fav { width: 46px; height: 46px; border-radius: 10px; border: 1px dashed rgba(227,194,106,.45); background: none; color: var(--dim); font-weight: 800; font-size: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; padding: 0; }
+.fav { width: 42px; height: 46px; border-radius: 10px; border: 1px dashed rgba(227,194,106,.45); background: none; color: var(--dim); font-weight: 800; font-size: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; padding: 0; }
 .fav small { font-size: 10px; font-weight: 600; margin-top: 3px; }
 .fav.set { border-style: solid; border-color: var(--gold); color: var(--gold); background: rgba(227,194,106,.08); }
 .fav.set small { color: var(--ink); }
-.roll { height: 48px; min-width: 84px; flex: 0 0 auto; border-radius: 12px; border: 0; background: linear-gradient(#e23b45, #a0131d); font-weight: 900; font-size: 18px; letter-spacing: .08em; color: #fff; }
+.roll { height: 48px; min-width: 78px; flex: 0 0 auto; border-radius: 12px; border: 0; background: linear-gradient(#e23b45, #a0131d); font-weight: 900; font-size: 18px; letter-spacing: .08em; color: #fff; }
 .roll:active:not(:disabled) { transform: translateY(1px); }
 
 /* toast */
@@ -156,9 +156,9 @@ button:disabled { opacity: .4; cursor: default; }
 
 /* small landscape phones: tighter dock */
 @media (max-width: 790px) {
-  .rchip { width: 34px; height: 34px; font-size: 11px; border-width: 2px; }
-  .dock { gap: 6px; } .tbtn { width: 36px; } .tbtn small { font-size: 8px; } .fav { width: 40px; }
-  .roll { min-width: 72px; }
+  .rchip { width: 30px; height: 30px; font-size: 10px; border-width: 2px; }
+  .dock { gap: 6px; } .tbtn { width: 34px; } .tbtn small { font-size: 8px; } .fav { width: 38px; }
+  .roll { min-width: 66px; }
   .hist i:nth-child(-n+3) { display: none; }
 }
 @media (max-width: 680px) { .stat:nth-child(2) { display: none; } }
