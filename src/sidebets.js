@@ -1,4 +1,5 @@
 // sidebets.js — "Side Bets" panel for bets with no printed box on the felt:
+// group bets (Across, Inside, Outside, Mid, All Hardways, Hop the Hardways, Iron Cross, Regress),
 // World, Horn High 2/3/11/12, the 21 Hop bets, Fire Bet and All / Tall / Small.
 // Pure DOM; bets go through the same chip-booking path as felt clicks (main.js placeChip).
 import { HOP_IDS, FIRE_PAYS, ATS } from './rules.js';
@@ -22,6 +23,10 @@ const CSS = `
 .sb-grid.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .sb-grid.c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .sb-grid.c7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.sb-grid.c8 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sb-b.grp { background: linear-gradient(180deg, rgba(70,48,22,.6), rgba(30,20,10,.8)); }
+.sb-b.grp .sb-s { font: 400 10.5px/1.2 var(--sans, sans-serif); color: var(--muted, #b6ab93); text-align: center; }
+.sb-b.grp .sb-p { font-weight: 700; }
 .sb-b { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 58px; padding: 7px 4px 6px; border-radius: 11px; cursor: pointer;
   border: 1px solid rgba(214,176,98,.28); background: linear-gradient(180deg, rgba(34,70,46,.55), rgba(12,30,19,.75)); color: var(--ink, #f4eddc); font: 600 12.5px/1.1 var(--sans, sans-serif); transition: border-color .15s, transform .12s, background .15s; }
 .sb-b:hover { border-color: var(--gold-hi, #f7e3a6); transform: translateY(-1px); }
@@ -49,7 +54,7 @@ const die = (v) => `<span class="sb-d">${Array.from({ length: 9 }, (_, i) => `<i
  * Returns { open(), close(), toggle(), refresh(), isOpen }
  */
 export function createSideBets(opts) {
-  const { game, getChip, place, remove, pending, isBetting, fmt } = opts;
+  const { game, getChip, place, remove, pending, isBetting, fmt, groups = [], groupPlan, placeGroup, regress } = opts;
   if (!document.getElementById('sb-style')) { const st = document.createElement('style'); st.id = 'sb-style'; st.textContent = CSS; document.head.appendChild(st); }
   const el = document.createElement('div');
   el.className = 'sb-panel'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Side bets');
@@ -67,9 +72,17 @@ export function createSideBets(opts) {
 
   function render() {
     const hops = HOP_IDS.map((id) => { const a = Number(id[3]), b = Number(id[4]); return btn(id, '', a === b ? '30:1' : '15:1', `<span class="sb-dice">${die(a)}${die(b)}</span>`); }).join('');
+    const grp = groups.map((g) => {
+      const p = groupPlan(g.key), off = !isBetting() || !p.plan.length;
+      const cost = p.plan.length ? fmt(p.total) : 'point covers it';
+      const tip = p.plan.map(([id, a]) => `${game.betInfo(id).name} ${fmt(a)}`).join('&#10;') + (p.skipped.length ? `&#10;Skips ${p.skipped.join(', ')} (the point)` : '');
+      return `<button class="sb-b grp${off ? ' off' : ''}" data-group="${g.key}" title="${tip}"><span class="sb-n">${g.label}</span><span class="sb-s">${g.sub}</span><span class="sb-p">${cost}</span></button>`;
+    }).join('') + (regress ? `<button class="sb-b grp${isBetting() ? '' : ' off'}" data-act="regress" title="Cut every place bet about in half, in payable units; the rest goes back to your rack"><span class="sb-n">Regress</span><span class="sb-s">Halve place bets</span><span class="sb-p">take half down</span></button>` : '');
     const fp = game.firePoints.length, ats = game.atsHits.slice().sort((a, b) => a - b);
     el.innerHTML = `
-      <div class="sb-head"><h3>Side Bets</h3><span class="sb-chip">Chip <b>${fmt(getChip())}</b> · click to add · right-click to take down</span><button class="sb-x" aria-label="Close">✕</button></div>
+      <div class="sb-head"><h3>Quick &amp; Side Bets</h3><span class="sb-chip">Chip <b>${fmt(getChip())}</b> · click to add · right-click to take down</span><button class="sb-x" aria-label="Close">✕</button></div>
+      ${grp ? `<div class="sb-sec">Group bets <em>one tap per unit · your chip is the unit · 6 &amp; 8 in $6s · skips the point</em></div>
+      <div class="sb-grid c8">${grp}</div>` : ''}
       <div class="sb-sec">Horn family <em>one roll · booked in $5 units · max ${fmt(game.maxBookable("world"))}</em></div>
       <div class="sb-grid c5">
         ${btn('world', 'World', '2·3·7·11·12')}
@@ -94,10 +107,13 @@ export function createSideBets(opts) {
   el.addEventListener('click', (e) => {
     if (e.target.closest('.sb-x')) { close(); return; }
     const b = e.target.closest('.sb-b'); if (!b) return;
-    place(b.dataset.id); render();
+    if (b.dataset.group) placeGroup(b.dataset.group);
+    else if (b.dataset.act === 'regress') regress();
+    else place(b.dataset.id);
+    render();
   });
   el.addEventListener('contextmenu', (e) => {
-    const b = e.target.closest('.sb-b'); if (!b) return;
+    const b = e.target.closest('.sb-b'); if (!b || !b.dataset.id) return;
     e.preventDefault(); remove(b.dataset.id); render();
   });
   game.on('*', () => { if (api.isOpen) render(); });

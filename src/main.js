@@ -488,6 +488,64 @@ function toggleZoneWorking(zone) {
   return true;
 }
 function takeDownPlaces() { let any = false; for (const id of Object.keys(game.bets)) if (/^(place|buy|lay)\d/.test(id)) any = takeDown(id, { silent: true }) || any; if (!any) toast('No place bets to take down', true); }
+// ---------- group bets: one tap books a whole dealer call ("$32 across", "hardways", "iron cross") ----------
+// The selected chip is the unit. Place bets go down in payable units ($5 on 4/5/9/10, $6 on 6/8 for a $5 chip;
+// $25/$30 for a $25 chip), never below the table minimum. A group skips the point (the line already covers it),
+// and a number that already has a Buy bet gets the money on the Buy. Each tap adds one more unit to every bet.
+const GROUP_BETS = [
+  { key: 'across', label: 'Across', sub: 'Place 4 5 6 8 9 10', nums: [4, 5, 6, 8, 9, 10] },
+  { key: 'inside', label: 'Inside', sub: 'Place 5 6 8 9', nums: [5, 6, 8, 9] },
+  { key: 'outside', label: 'Outside', sub: 'Place 4 5 9 10', nums: [4, 5, 9, 10] },
+  { key: 'mid', label: 'Mid', sub: 'Place 6 & 8', nums: [6, 8] },
+  { key: 'hardways', label: 'All Hardways', sub: 'Hard 4 6 8 10', ids: ['hard4', 'hard6', 'hard8', 'hard10'] },
+  { key: 'hopHard', label: 'Hop the Hardways', sub: '1-1 2-2 … 6-6 · one roll', ids: ['hop11', 'hop22', 'hop33', 'hop44', 'hop55', 'hop66'] },
+  { key: 'ironCross', label: 'Iron Cross', sub: 'Field + Place 5 6 8', ids: ['field'], nums: [5, 6, 8] },
+];
+function groupPlan(key) {
+  const g = GROUP_BETS.find((x) => x.key === key); if (!g) return null;
+  const u = ui.chip, n = Math.max(1, Math.ceil(u / 5 - 1e-9));
+  const plan = [], skipped = [];
+  for (const id of g.ids || []) plan.push([id, Math.max(u, game.minFor(id))]);
+  for (const num of g.nums || []) {
+    if (game.point === num) { skipped.push(num); continue; }
+    const id = game.bets['buy' + num] ? 'buy' + num : 'place' + num;
+    const unit = num === 6 || num === 8 ? 6 : 5, min = game.minFor(id);
+    plan.push([id, Math.max(unit * n, Math.ceil(min / unit - 1e-9) * unit)]);
+  }
+  return { g, plan, skipped, total: plan.reduce((s, [id, a]) => s + a + game.upfrontVig(id, a), 0) };
+}
+function placeGroup(key) {
+  if (ui.phase !== 'betting') { toast('No more bets — dice are rolling'); return false; }
+  const p = groupPlan(key); if (!p) return false;
+  if (!p.plan.length) { toast(`${p.g.label}: the point covers it — nothing to place`, true); return false; }
+  const bad = p.plan.map(([id, a]) => [id, game.validate(id, a)]).filter(([, v]) => !v.ok);
+  if (bad.length) { toast(`${p.g.label} not booked — ${bad[0][1].reason}`); audio.error(); return false; }
+  if (p.total > game.bankroll - pendingTotal()) { toast(`${p.g.label} needs ${fmt(p.total)} — insufficient bankroll`); audio.error(); return false; }
+  audio.init();
+  for (const [id, a] of p.plan) placeOn(id, a, { silent: true });
+  toast(`${fmt(p.total)} ${p.g.label.toLowerCase()} — ${p.plan.map(([id, a]) => `${game.betInfo(id).name.replace(/^(Place|Buy|Hard|Hop) /, '')} ${fmt(a)}`).join(' · ')}`
+    + (p.skipped.length ? ` (skips the ${p.skipped[0]}, the point)` : ''), true);
+  return true;
+}
+/** Regress: cut every place bet roughly in half (payable units, not below the minimum), returning the rest. */
+function regressPlaces() {
+  if (ui.phase !== 'betting') { toast('No more bets — dice are rolling'); return; }
+  let back = 0;
+  for (const [id, a] of Object.entries(game.bets)) {
+    const m = /^place(\d+)$/.exec(id); if (!m) continue;
+    const num = Number(m[1]), unit = num === 6 || num === 8 ? 6 : 5, min = game.minFor(id);
+    const to = Math.max(Math.ceil(min / unit - 1e-9) * unit, Math.floor(a / 2 / unit) * unit);
+    if (to >= a) continue;
+    const working = game.isWorking(id);
+    if (!game.removeBet(id).ok) continue;
+    if (!game.placeBet(id, to).ok) { game.placeBet(id, a); continue; } // never lose a bet to a failed re-book
+    if (game.canToggleWorking?.(id) && game.isWorking(id) !== working) game.setWorking(id, working);
+    chips.setBet(id, to, { animate: !SHOT }); back += a - to;
+  }
+  if (!back) { toast('No place bets to regress (already at the minimum)', true); return; }
+  audio.chipsTake?.(2, null); updateHUD(); persist();
+  toast(`Regressed — ${fmt(back)} back to your rack`, true);
+}
 function clearAll() { let any = false; for (const id of Object.keys(game.bets)) if (game.canRemove(id).ok) any = takeDown(id, { silent: true }) || any; if (!any) toast('Nothing removable — line & come bets are contract bets', true); }
 function rebet() {
   if (!ui.lastBets || ui.phase !== 'betting') return;
@@ -833,6 +891,7 @@ const sideBets = createSideBets({
   isBetting: () => ui.phase === 'betting',
   pending: (id) => ui.pending[id] || 0,
   place: (id) => { audio.init(); return placeChip(id); },
+  groups: GROUP_BETS, groupPlan, placeGroup, regress: regressPlaces,
   remove: (id) => {
     if (ui.pending[id] && !game.bets[id]) { delete ui.pending[id]; setPendingVisual(id); return true; }
     return takeDown(id);
@@ -842,8 +901,8 @@ const sideBets = createSideBets({
   const menu = $('moreMenu');
   const sbBtn = document.createElement('button');
   sbBtn.className = menu ? 'mi' : 'act'; sbBtn.id = 'sideBetsBtn'; sbBtn.setAttribute('role', 'menuitem');
-  sbBtn.title = 'World, Horn High, Hop bets, Fire Bet, All/Tall/Small (B) · also right-click the Horn box';
-  sbBtn.innerHTML = menu ? '<span class="mi-ico">✶</span><span class="mi-txt">Side bets<em>Hops, World, Horn High, Fire, ATS</em></span>' : 'Side bets';
+  sbBtn.title = 'Across, Inside, Hardways, Iron Cross, Hops, World, Fire, ATS (B) · also right-click the Horn box';
+  sbBtn.innerHTML = menu ? '<span class="mi-ico">✶</span><span class="mi-txt">Quick &amp; side bets<em>Across, Inside, Hardways, Hops, Fire…</em></span>' : 'Quick bets';
   sbBtn.addEventListener('click', () => { audio.click(); sideBets.toggle(); });
   (menu || $('rollBtn')?.parentElement || document.body).appendChild(sbBtn);
 }
