@@ -98,7 +98,7 @@ button:disabled { opacity: .4; cursor: default; }
 .rchip.c5 { background: #c8202b; } .rchip.c25 { background: #17853f; } .rchip.c100 { background: #1b1b1b; } .rchip.c500 { background: #6b2fa8; } .rchip.c1k { background: #d9861d; }
 .rchip.sel { transform: translateY(-5px); outline: 2px solid var(--gold); outline-offset: 2px; }
 .tools { display: flex; gap: 4px; }
-.tbtn { width: 42px; height: 46px; border-radius: 10px; border: 1px solid rgba(255,255,255,.13); background: #12241b; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; line-height: 1; padding: 0; }
+.tbtn { width: 40px; height: 46px; border-radius: 10px; border: 1px solid rgba(255,255,255,.13); background: #12241b; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; line-height: 1; padding: 0; }
 .tbtn small { font-size: 9px; margin-top: 3px; color: var(--dim); }
 .tbtn[aria-pressed="true"] { background: #5a1c1f; border-color: #ff8a8a; }
 .favs { display: flex; gap: 4px; margin-left: auto; }
@@ -157,7 +157,7 @@ button:disabled { opacity: .4; cursor: default; }
 /* small landscape phones: tighter dock */
 @media (max-width: 790px) {
   .rchip { width: 34px; height: 34px; font-size: 11px; border-width: 2px; }
-  .tbtn { width: 38px; } .tbtn small { font-size: 8px; } .fav { width: 42px; }
+  .dock { gap: 6px; } .tbtn { width: 36px; } .tbtn small { font-size: 8px; } .fav { width: 40px; }
   .roll { min-width: 72px; }
   .hist i:nth-child(-n+3) { display: none; }
 }

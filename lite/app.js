@@ -252,6 +252,7 @@ function renderHUD() {
   $('rollBtn').disabled = rolling;
   $('undoBtn').disabled = !undo.length;
   $('rebetBtn').disabled = !lastBets;
+  $('regressBtn').disabled = rolling || !Object.keys(game.bets).some((id) => /^place\d+$/.test(id));
   renderFavs();
 }
 
@@ -581,6 +582,7 @@ $('undoBtn').onclick = undoLast;
 $('clearBtn').onclick = clearAll;
 $('oddsBtn').onclick = maxOdds;
 $('rebetBtn').onclick = () => { if (lastBets) applyLayout(lastBets, 'Rebet'); };
+$('regressBtn').onclick = regress;
 $('quickBtn').onclick = openQuick;
 $('settingsBtn').onclick = () => { syncSegs(); openSheet('settingsSheet'); };
 $('sessionBtn').onclick = openHistory;
