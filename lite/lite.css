@@ -6,10 +6,10 @@
   --edge: max(8px, env(safe-area-inset-left), env(safe-area-inset-right));
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px var(--sans); overflow: hidden; user-select: none; -webkit-user-select: none; }
+html, body { margin: 0; height: 100%; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; background: var(--bg); color: var(--ink); font: 13px var(--sans); overflow: hidden; user-select: none; -webkit-user-select: none; }
 button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
 button:disabled { opacity: .4; cursor: default; }
-#app { display: grid; grid-template-rows: 32px 1fr 60px; height: 100vh; height: 100dvh; padding: 0 var(--edge) env(safe-area-inset-bottom); }
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: 32px 1fr 60px; padding: 0 var(--edge) env(safe-area-inset-bottom); }
 
 /* top bar */
 .top { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -177,3 +177,11 @@ button:disabled { opacity: .4; cursor: default; }
 .qgrid.autog { grid-template-columns: repeat(3, 1fr); }
 .qb.auto b { color: var(--gold); }
 .auto-lim { grid-column: 1 / -1; justify-content: center; margin-top: 2px; }
+
+/* never clip ROLL: tool and favorite buttons give up width first (iPhone PWA, Display Zoom, big text) */
+.chips { flex: 0 0 auto; }
+.tools { flex: 0 1 auto; min-width: 244px; } .favs { flex: 0 1 auto; min-width: 98px; }
+.rchip { flex: 0 0 auto; }
+.tbtn { flex: 0 1 auto; min-width: 27px; overflow: hidden; }
+.fav { flex: 0 1 auto; min-width: 30px; overflow: hidden; }
+.roll { flex: 0 0 auto; white-space: nowrap; }
