@@ -9,7 +9,7 @@
 html, body { margin: 0; height: 100%; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; background: var(--bg); color: var(--ink); font: 13px var(--sans); overflow: hidden; user-select: none; -webkit-user-select: none; }
 button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
 button:disabled { opacity: .4; cursor: default; }
-#app { position: fixed; inset: 0; display: grid; grid-template-rows: 32px 1fr 60px; padding: 0 var(--edge) env(safe-area-inset-bottom); }
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: 32px 1fr 60px; padding: env(safe-area-inset-top) var(--edge) env(safe-area-inset-bottom); }
 
 /* top bar */
 .top { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -110,13 +110,13 @@ button:disabled { opacity: .4; cursor: default; }
 .roll:active:not(:disabled) { transform: translateY(1px); }
 
 /* toast */
-.toast { position: fixed; left: 50%; top: 2px; transform: translateX(-50%); max-width: min(720px, 92vw); padding: 7px 14px; border-radius: 10px; background: #3a1416; border: 1px solid #a8444a;
+.toast { position: fixed; left: 50%; top: calc(2px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: min(720px, 92vw); padding: 7px 14px; border-radius: 10px; background: #3a1416; border: 1px solid #a8444a;
   font-size: 13px; text-align: center; opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 50; }
 .toast.ok { background: #102a1c; border-color: #3f8a5e; }
 .toast.show { opacity: 1; }
 
 /* sheets */
-.sheet { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 40; }
+.sheet { position: fixed; inset: 0; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 40; }
 .sheet[hidden] { display: none; }
 .sheet-card { width: min(760px, 94vw); max-height: 92dvh; overflow: auto; background: var(--panel); border: 1px solid rgba(227,194,106,.35); border-radius: 14px; padding: 10px 14px 14px; }
 .sheet-card.small { width: min(380px, 92vw); }
